@@ -28,7 +28,6 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// Serve uploaded files
 app.use("/uploads", express.static(uploadDir));
 
 // ==========================
@@ -44,7 +43,7 @@ pool.connect()
   .catch((err) => console.error("❌ Database connection error:", err));
 
 // ==========================
-// 📌 Register Endpoint
+// 📌 Register
 // ==========================
 app.post("/register", async (req, res) => {
   const { username, password, email, first_name, last_name, middle_initial, mobile_number } = req.body;
@@ -62,7 +61,7 @@ app.post("/register", async (req, res) => {
 });
 
 // ==========================
-// 📌 Login Endpoint
+// 📌 Login
 // ==========================
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
@@ -128,25 +127,7 @@ app.post("/reset-password", async (req, res) => {
 });
 
 // ==========================
-// 📌 Home Endpoint
-// ==========================
-app.get("/home/:user_id", async (req, res) => {
-  const { user_id } = req.params;
-  try {
-    const result = await pool.query(
-      "SELECT first_name, profile_image FROM users WHERE user_id = $1",
-      [user_id]
-    );
-    if (result.rows.length > 0) res.json({ success: true, user: result.rows[0] });
-    else res.json({ success: false, message: "User not found" });
-  } catch (err) {
-    console.error("❌ Home fetch error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
-// ==========================
-// 📌 Profile Fetch + Upload
+// 📌 Profile Fetch & Upload
 // ==========================
 app.get("/profile/:user_id", async (req, res) => {
   const { user_id } = req.params;
@@ -192,9 +173,7 @@ app.post("/add-reading", async (req, res) => {
       [user_id, device_id]
     );
 
-    let previous_reading = 0;
-    if (lastReading.rows.length > 0) previous_reading = lastReading.rows[0].reading_5digit;
-
+    const previous_reading = lastReading.rows.length > 0 ? lastReading.rows[0].reading_5digit : 0;
     const current_reading = reading_5digit;
     const consumption = Math.max(current_reading - previous_reading, 0);
     const ratePerCubic = 15.0;
@@ -266,60 +245,30 @@ app.get("/water-bills/:user_id", async (req, res) => {
 });
 
 // ==========================
-// 📌 Expo Push + Leak Detection
+// 📌 Expo Push Notifications + Leak Detection
 // ==========================
-app.post("/register-push-token", async (req, res) => {
-  const { user_id, expo_push_token } = req.body;
-  try {
-    await pool.query(
-      "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
-      [expo_push_token, user_id]
-    );
-    res.json({ success: true, message: "Push token registered successfully" });
-  } catch (err) {
-    console.error("❌ Push token registration error:", err);
-    res.status(500).json({ success: false, error: "Failed to register push token" });
-  }
-});
-
 function isValidExpoPushToken(token) {
   return typeof token === "string" && token.startsWith("ExponentPushToken");
 }
 
 async function sendExpoPushAndStore(expoToken, user_id, title, body, extra = {}) {
-  if (!expoToken || !isValidExpoPushToken(expoToken)) {
-    console.warn("⚠️ Invalid expo push token for user", user_id, expoToken);
-    return null;
-  }
+  if (!expoToken || !isValidExpoPushToken(expoToken)) return;
 
   try {
-    const payload = {
+    await axios.post("https://exp.host/--/api/v2/push/send", {
       to: expoToken,
       sound: "default",
       title,
       body,
       data: extra,
-    };
-
-    const resp = await axios.post("https://exp.host/--/api/v2/push/send", payload, {
-      headers: { "Accept": "application/json", "Content-Type": "application/json" },
-      timeout: 10000,
     });
 
-    try {
-      await pool.query(
-        `INSERT INTO notifications (user_id, title, body, data) VALUES ($1, $2, $3, $4)`,
-        [user_id, title, body, JSON.stringify(extra || {})]
-      );
-    } catch (storeErr) {
-      console.warn("⚠️ Could not store notification:", storeErr.message);
-    }
-
-    console.log("✅ Expo push sent for user", user_id, "response:", resp.data);
-    return resp.data;
+    await pool.query(
+      `INSERT INTO notifications (user_id, message, type) VALUES ($1, $2, $3)`,
+      [user_id, body, (extra && extra.type) || "alert"]
+    );
   } catch (err) {
     console.error("❌ Expo push error:", err.message);
-    return null;
   }
 }
 
@@ -331,10 +280,9 @@ cron.schedule("*/10 * * * *", async () => {
     );
 
     for (const user of users.rows) {
-      const { user_id, expo_push_token } = user;
       const readings = await pool.query(
-        `SELECT consumption FROM water_consumption WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 5`,
-        [user_id]
+        "SELECT consumption FROM water_consumption WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 5",
+        [user.user_id]
       );
 
       const data = readings.rows.map(r => Number(r.consumption) || 0);
@@ -342,16 +290,15 @@ cron.schedule("*/10 * * * *", async () => {
 
       const latest = data[0];
       const avg = data.slice(1).reduce((a, b) => a + b, 0) / (data.length - 1);
-      if (avg <= 0) continue;
 
       if (latest > avg * 1.5) {
-        console.log(`⚠️ Leak suspected for user ${user_id}`);
+        console.log(`⚠️ Leak suspected for user ${user.user_id}`);
         await sendExpoPushAndStore(
-          expo_push_token,
-          user_id,
+          user.expo_push_token,
+          user.user_id,
           "🚨 Water Leak Alert",
-          `Your latest consumption (${latest} cu.m.) is much higher than average (${avg.toFixed(1)} cu.m.).`,
-          { type: "leak_alert", latest, avg }
+          `Your latest consumption (${latest} cu.m.) is higher than average (${avg.toFixed(1)} cu.m.).`,
+          { type: "leak_alert" }
         );
       }
     }
@@ -361,7 +308,7 @@ cron.schedule("*/10 * * * *", async () => {
 });
 
 // ==========================
-// 📊 Consumption API
+// 📊 Consumption Data
 // ==========================
 app.get("/consumption/:user_id", async (req, res) => {
   const { user_id } = req.params;
@@ -379,13 +326,6 @@ app.get("/consumption/:user_id", async (req, res) => {
     console.error("❌ Consumption fetch error:", err);
     res.status(500).json({ success: false, error: "Server error" });
   }
-});
-
-// ==========================
-// 📌 Default 404 Handler
-// ==========================
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: "Endpoint not found" });
 });
 
 // ==========================
