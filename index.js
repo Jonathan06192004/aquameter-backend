@@ -1,13 +1,16 @@
 // index.js
-const express = require("express");
-const { Pool } = require("pg");
-const cors = require("cors");
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
-const crypto = require("crypto");
-const axios = require("axios"); // For sending Expo push notifications
-const cron = require("node-cron"); // For scheduling leak detection checks
+import dotenv from "dotenv";
+dotenv.config();
+
+import express from "express";
+import { Pool } from "pg";
+import cors from "cors";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import crypto from "crypto";
+import axios from "axios";
+import cron from "node-cron";
 
 const app = express();
 app.use(cors());
@@ -16,7 +19,7 @@ app.use(express.json());
 // ==========================
 // 📂 File Upload Setup
 // ==========================
-const uploadDir = path.join(__dirname, "uploads");
+const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
 const storage = multer.diskStorage({
@@ -29,18 +32,19 @@ const upload = multer({ storage });
 app.use("/uploads", express.static(uploadDir));
 
 // ==========================
-// 📌 PostgreSQL connection
+// 📌 PostgreSQL Connection (Render)
 // ==========================
 const pool = new Pool({
-  user: "postgres",
-  host: "localhost",
-  database: "aquameter",
-  password: "jonathanayop",
-  port: 5432,
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
+pool.connect()
+  .then(() => console.log("✅ Connected to Render PostgreSQL"))
+  .catch((err) => console.error("❌ Database connection error:", err));
+
 // ==========================
-// 📌 Register endpoint
+// 📌 Register Endpoint
 // ==========================
 app.post("/register", async (req, res) => {
   const { username, password, email, first_name, last_name, middle_initial, mobile_number } = req.body;
@@ -58,7 +62,7 @@ app.post("/register", async (req, res) => {
 });
 
 // ==========================
-// 📌 Login endpoint
+// 📌 Login Endpoint
 // ==========================
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
@@ -85,7 +89,7 @@ app.post("/forgot-password", async (req, res) => {
     if (result.rows.length === 0) return res.json({ success: false, message: "Email not found" });
 
     const resetToken = crypto.randomBytes(20).toString("hex");
-    const expiry = new Date(Date.now() + 3600000); // 1 hour expiry
+    const expiry = new Date(Date.now() + 3600000);
 
     await pool.query(
       "UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3",
@@ -124,7 +128,7 @@ app.post("/reset-password", async (req, res) => {
 });
 
 // ==========================
-// 📌 Home endpoint
+// 📌 Home Endpoint
 // ==========================
 app.get("/home/:user_id", async (req, res) => {
   const { user_id } = req.params;
@@ -142,7 +146,7 @@ app.get("/home/:user_id", async (req, res) => {
 });
 
 // ==========================
-// 📌 Profile fetch
+// 📌 Profile Fetch + Upload
 // ==========================
 app.get("/profile/:user_id", async (req, res) => {
   const { user_id } = req.params;
@@ -160,9 +164,6 @@ app.get("/profile/:user_id", async (req, res) => {
   }
 });
 
-// ==========================
-// 📌 Profile image upload
-// ==========================
 app.post("/profile/:user_id/upload", upload.single("profile_image"), async (req, res) => {
   const { user_id } = req.params;
   if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
@@ -184,7 +185,6 @@ app.post("/add-reading", async (req, res) => {
   const { user_id, device_id, reading_5digit } = req.body;
 
   try {
-    // 1. Get last reading for user/device
     const lastReading = await pool.query(
       `SELECT reading_5digit FROM water_consumption 
        WHERE user_id = $1 AND device_id = $2 
@@ -193,17 +193,13 @@ app.post("/add-reading", async (req, res) => {
     );
 
     let previous_reading = 0;
-    if (lastReading.rows.length > 0) {
-      previous_reading = lastReading.rows[0].reading_5digit;
-    }
+    if (lastReading.rows.length > 0) previous_reading = lastReading.rows[0].reading_5digit;
 
-    // 2. Calculate
     const current_reading = reading_5digit;
     const consumption = Math.max(current_reading - previous_reading, 0);
     const ratePerCubic = 15.0;
     const amount_to_pay = consumption * ratePerCubic;
 
-    // 3. Insert into water_consumption
     const consumptionResult = await pool.query(
       `INSERT INTO water_consumption 
        (user_id, device_id, reading_5digit, previous_reading, current_reading, consumption) 
@@ -214,14 +210,11 @@ app.post("/add-reading", async (req, res) => {
 
     const reading_id = consumptionResult.rows[0].reading_id;
     const timestamp = consumptionResult.rows[0].timestamp;
-
-    // 4. Create bill details
     const bill_number = `BILL-${user_id}-${reading_id}-${new Date().getFullYear()}`;
     const period_start = new Date(new Date(timestamp).setDate(new Date(timestamp).getDate() - 29));
     const period_end = timestamp;
     const due_date = new Date(new Date(timestamp).setDate(new Date(timestamp).getDate() + 5));
 
-    // 5. Insert into water_bills
     await pool.query(
       `INSERT INTO water_bills 
        (user_id, reading_id, bill_number, period_start, period_end, due_date, amount_to_pay) 
@@ -273,10 +266,8 @@ app.get("/water-bills/:user_id", async (req, res) => {
 });
 
 // ==========================
-// 📌 Expo Push Notifications
+// 📌 Expo Push + Leak Detection
 // ==========================
-
-// Endpoint to save Expo push tokens
 app.post("/register-push-token", async (req, res) => {
   const { user_id, expo_push_token } = req.body;
   try {
@@ -291,12 +282,10 @@ app.post("/register-push-token", async (req, res) => {
   }
 });
 
-// helper: safe check for expo token format
 function isValidExpoPushToken(token) {
   return typeof token === "string" && token.startsWith("ExponentPushToken");
 }
 
-// helper: send expo push and store notification (safe, won't crash backend if notifications table missing)
 async function sendExpoPushAndStore(expoToken, user_id, title, body, extra = {}) {
   if (!expoToken || !isValidExpoPushToken(expoToken)) {
     console.warn("⚠️ Invalid expo push token for user", user_id, expoToken);
@@ -317,76 +306,53 @@ async function sendExpoPushAndStore(expoToken, user_id, title, body, extra = {})
       timeout: 10000,
     });
 
-    // try to store notification record (optional table); swallow errors so it doesn't break the flow
     try {
       await pool.query(
         `INSERT INTO notifications (user_id, title, body, data) VALUES ($1, $2, $3, $4)`,
         [user_id, title, body, JSON.stringify(extra || {})]
       );
     } catch (storeErr) {
-      // If notifications table doesn't exist or insert fails, do not throw — just log.
-      console.warn("⚠️ Could not store notification record (notifications table maybe missing):", storeErr.message || storeErr);
+      console.warn("⚠️ Could not store notification:", storeErr.message);
     }
 
     console.log("✅ Expo push sent for user", user_id, "response:", resp.data);
     return resp.data;
   } catch (err) {
-    console.error("❌ Error sending expo push for user", user_id, err.response ? err.response.data : err.message || err);
+    console.error("❌ Expo push error:", err.message);
     return null;
   }
 }
 
-// Leak detection job — runs every 10 minutes
-// For faster local testing you can change the schedule to "*/1 * * * *" (every minute)
 cron.schedule("*/10 * * * *", async () => {
   console.log("🔎 Running leak detection...");
-
   try {
-    // Get users that have expo tokens saved (non-null and not empty)
-    const usersResult = await pool.query(
+    const users = await pool.query(
       "SELECT user_id, expo_push_token FROM users WHERE expo_push_token IS NOT NULL AND expo_push_token <> ''"
     );
 
-    for (const user of usersResult.rows) {
-      try {
-        const { user_id, expo_push_token } = user;
+    for (const user of users.rows) {
+      const { user_id, expo_push_token } = user;
+      const readings = await pool.query(
+        `SELECT consumption FROM water_consumption WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 5`,
+        [user_id]
+      );
 
-        // get last 5 readings for user, newest first
-        const readingsResult = await pool.query(
-          `SELECT consumption FROM water_consumption WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 5`,
-          [user_id]
+      const data = readings.rows.map(r => Number(r.consumption) || 0);
+      if (data.length < 2) continue;
+
+      const latest = data[0];
+      const avg = data.slice(1).reduce((a, b) => a + b, 0) / (data.length - 1);
+      if (avg <= 0) continue;
+
+      if (latest > avg * 1.5) {
+        console.log(`⚠️ Leak suspected for user ${user_id}`);
+        await sendExpoPushAndStore(
+          expo_push_token,
+          user_id,
+          "🚨 Water Leak Alert",
+          `Your latest consumption (${latest} cu.m.) is much higher than average (${avg.toFixed(1)} cu.m.).`,
+          { type: "leak_alert", latest, avg }
         );
-
-        const rows = readingsResult.rows || [];
-        if (rows.length < 2) continue; // not enough data
-
-        // convert to numbers safely
-        const consumptions = rows.map(r => {
-          const n = Number(r.consumption);
-          return isNaN(n) ? 0 : n;
-        });
-
-        const latest = consumptions[0];
-        const others = consumptions.slice(1);
-        const sumOthers = others.reduce((a, b) => a + b, 0);
-        const avg = others.length > 0 ? sumOthers / others.length : 0;
-
-        // If the average is zero we cannot compare meaningfully
-        if (avg <= 0) continue;
-
-        // If latest > avg * 1.5 then suspect leak
-        if (latest > avg * 1.5) {
-          console.log(`⚠️ Leak suspected for user ${user_id} — latest ${latest}, avg ${avg.toFixed(2)}`);
-
-          const title = "🚨 Water Leak Alert";
-          const body = `Your latest consumption (${latest} cu.m.) is much higher than recent average (${avg.toFixed(1)} cu.m.). Please check for leaks.`;
-          const extra = { type: "leak_alert", latest, avg };
-
-          await sendExpoPushAndStore(expo_push_token, user_id, title, body, extra);
-        }
-      } catch (perUserErr) {
-        // protect the cron loop from crashing on a single user
-        console.error("❌ Error processing user in leak detection loop:", perUserErr);
       }
     }
   } catch (err) {
@@ -395,11 +361,10 @@ cron.schedule("*/10 * * * *", async () => {
 });
 
 // ==========================
-// 📊 Consumption API (fixed)
+// 📊 Consumption API
 // ==========================
 app.get("/consumption/:user_id", async (req, res) => {
   const { user_id } = req.params;
-  console.log("📡 GET /consumption for user:", user_id);
   try {
     const result = await pool.query(
       `SELECT timestamp, COALESCE(consumption,0)::FLOAT AS consumption
@@ -417,7 +382,7 @@ app.get("/consumption/:user_id", async (req, res) => {
 });
 
 // ==========================
-// 📌 Default 404 Handler (avoid <html> responses)
+// 📌 Default 404 Handler
 // ==========================
 app.use((req, res) => {
   res.status(404).json({ success: false, message: "Endpoint not found" });
@@ -426,8 +391,9 @@ app.use((req, res) => {
 // ==========================
 // 📌 Server Listener
 // ==========================
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Server running at http://0.0.0.0:${PORT}`);
-  console.log(`👉 Emulator: http://10.0.2.2:${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
 });
+
+export default pool;
