@@ -31,16 +31,20 @@ const upload = multer({ storage });
 app.use("/uploads", express.static(uploadDir));
 
 // ==========================
-// 📌 PostgreSQL Connection (Render)
+// 📌 PostgreSQL Connection (Local + Render Compatible)
 // ==========================
+const isRender = process.env.RENDER === "true" || process.env.DATABASE_URL?.includes("render.com");
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  connectionString:
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:password@localhost:5432/aquameter",
+  ssl: isRender ? { rejectUnauthorized: false } : false,
 });
 
 pool.connect()
-  .then(() => console.log("✅ Connected to Render PostgreSQL"))
-  .catch((err) => console.error("❌ Database connection error:", err));
+  .then(() => console.log("✅ Connected to PostgreSQL database"))
+  .catch((err) => console.error("❌ Database connection error:", err.message));
 
 // ==========================
 // 📌 Register
@@ -285,7 +289,7 @@ cron.schedule("*/10 * * * *", async () => {
         [user.user_id]
       );
 
-      const data = readings.rows.map(r => Number(r.consumption) || 0);
+      const data = readings.rows.map((r) => Number(r.consumption) || 0);
       if (data.length < 2) continue;
 
       const latest = data[0];
