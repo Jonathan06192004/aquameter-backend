@@ -47,9 +47,7 @@ const pool = new Pool({
 pool
   .connect()
   .then(() => console.log("✅ Connected to PostgreSQL database"))
-  .catch((err) =>
-    console.error("❌ Database connection error:", err.message)
-  );
+  .catch((err) => console.error("❌ Database connection error:", err.message));
 
 // ==========================
 // 📌 Register
@@ -98,20 +96,33 @@ app.post("/login", async (req, res) => {
 });
 
 // ==========================
-// 📌 Save Push Token (NEW)
+// 📌 Save Push Token (UPDATED for user_tokens table)
 // ==========================
 app.post("/api/save-push-token", async (req, res) => {
-  const { user_id, expo_push_token } = req.body;
+  const { user_id, expo_token, fcm_token } = req.body;
 
-  if (!user_id || !expo_push_token) {
-    return res.status(400).json({ success: false, error: "Missing parameters" });
+  if (!user_id) {
+    return res.status(400).json({ success: false, error: "Missing user_id" });
   }
 
   try {
-    await pool.query(
-      "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
-      [expo_push_token, user_id]
+    const existing = await pool.query(
+      "SELECT * FROM user_tokens WHERE user_id = $1",
+      [user_id]
     );
+
+    if (existing.rows.length > 0) {
+      await pool.query(
+        "UPDATE user_tokens SET expo_token = $1, fcm_token = $2 WHERE user_id = $3",
+        [expo_token, fcm_token, user_id]
+      );
+    } else {
+      await pool.query(
+        "INSERT INTO user_tokens (user_id, expo_token, fcm_token) VALUES ($1, $2, $3)",
+        [user_id, expo_token, fcm_token]
+      );
+    }
+
     res.json({ success: true, message: "Push token saved successfully" });
   } catch (err) {
     console.error("❌ Save token error:", err.message);
@@ -281,7 +292,7 @@ app.get("/water-bills/:user_id", async (req, res) => {
 });
 
 // ==========================
-// 📌 Leak Detection + Notifications
+// 📌 Leak Detection + Notifications (UPDATED)
 // ==========================
 function isValidExpoPushToken(token) {
   return typeof token === "string" && token.startsWith("ExponentPushToken");
@@ -311,7 +322,7 @@ cron.schedule("*/10 * * * *", async () => {
   console.log("🔎 Running leak detection...");
   try {
     const users = await pool.query(
-      "SELECT user_id, expo_push_token FROM users WHERE expo_push_token IS NOT NULL AND expo_push_token <> ''"
+      "SELECT user_id, expo_token FROM user_tokens WHERE expo_token IS NOT NULL AND expo_token <> ''"
     );
 
     for (const user of users.rows) {
@@ -329,7 +340,7 @@ cron.schedule("*/10 * * * *", async () => {
       if (latest > avg * 1.5) {
         console.log(`⚠️ Leak suspected for user ${user.user_id}`);
         await sendExpoPushAndStore(
-          user.expo_push_token,
+          user.expo_token,
           user.user_id,
           "🚨 Water Leak Alert",
           `Your latest consumption (${latest} cu.m.) is higher than average (${avg.toFixed(1)} cu.m.).`,
