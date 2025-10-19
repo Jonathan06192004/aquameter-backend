@@ -57,6 +57,34 @@ app.get("/", (req, res) => {
 });
 
 // ==========================
+// 📌 HOME Route (fetch user info)
+// ==========================
+app.get("/home/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      "SELECT user_id, username, email, first_name, last_name, middle_initial, mobile_number, profile_image FROM users WHERE user_id = $1",
+      [id]
+    );
+
+    if (result.rows.length === 0)
+      return res.status(404).json({ success: false, message: "User not found" });
+
+    const user = result.rows[0];
+
+    // Add Render URL to profile_image path
+    if (user.profile_image && !user.profile_image.startsWith("http")) {
+      user.profile_image = `${req.protocol}://${req.get("host")}${user.profile_image}`;
+    }
+
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error("❌ Error fetching user for /home:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ==========================
 // 📌 Register
 // ==========================
 app.post("/register", async (req, res) => {
@@ -69,6 +97,9 @@ app.post("/register", async (req, res) => {
     middle_initial,
     mobile_number,
   } = req.body;
+
+  if (!username || !password)
+    return res.status(400).json({ success: false, error: "Missing fields" });
 
   try {
     const result = await pool.query(
@@ -96,6 +127,9 @@ app.post("/register", async (req, res) => {
 // ==========================
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
+  if (!username || !password)
+    return res.status(400).json({ success: false, error: "Missing username or password" });
+
   try {
     const result = await pool.query(
       "SELECT * FROM users WHERE username = $1 AND password = $2",
@@ -116,9 +150,8 @@ app.post("/login", async (req, res) => {
 app.post("/api/save-push-token", async (req, res) => {
   const { user_id, expo_token, fcm_token } = req.body;
 
-  if (!user_id) {
+  if (!user_id)
     return res.status(400).json({ success: false, error: "Missing user_id" });
-  }
 
   try {
     const existing = await pool.query(
@@ -142,53 +175,6 @@ app.post("/api/save-push-token", async (req, res) => {
   } catch (err) {
     console.error("❌ Save token error:", err.message);
     res.status(500).json({ success: false, error: "Failed to save token" });
-  }
-});
-
-// ==========================
-// 📌 Forgot / Reset Password
-// ==========================
-app.post("/forgot-password", async (req, res) => {
-  const { email } = req.body;
-  try {
-    const result = await pool.query("SELECT user_id FROM users WHERE email = $1", [email]);
-    if (result.rows.length === 0)
-      return res.json({ success: false, message: "Email not found" });
-
-    const resetToken = crypto.randomBytes(20).toString("hex");
-    const expiry = new Date(Date.now() + 3600000);
-
-    await pool.query(
-      "UPDATE users SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3",
-      [resetToken, expiry, email]
-    );
-
-    res.json({ success: true, resetToken });
-  } catch (err) {
-    console.error("❌ Forgot password error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
-app.post("/reset-password", async (req, res) => {
-  const { token, newPassword } = req.body;
-  try {
-    const result = await pool.query(
-      "SELECT user_id FROM users WHERE reset_token = $1 AND reset_token_expiry > NOW()",
-      [token]
-    );
-    if (result.rows.length === 0)
-      return res.json({ success: false, message: "Invalid or expired token" });
-
-    const userId = result.rows[0].user_id;
-    await pool.query(
-      "UPDATE users SET password = $1, reset_token = NULL, reset_token_expiry = NULL WHERE user_id = $2",
-      [newPassword, userId]
-    );
-    res.json({ success: true, message: "Password reset successful" });
-  } catch (err) {
-    console.error("❌ Reset password error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
   }
 });
 
@@ -231,60 +217,7 @@ app.post("/profile/:user_id/upload", upload.single("profile_image"), async (req,
 });
 
 // ==========================
-// 📌 Add Reading + Auto Bill
-// ==========================
-app.post("/add-reading", async (req, res) => {
-  const { user_id, device_id, reading_5digit } = req.body;
-  try {
-    const lastReading = await pool.query(
-      `SELECT reading_5digit FROM water_consumption 
-       WHERE user_id = $1 AND device_id = $2 
-       ORDER BY timestamp DESC LIMIT 1`,
-      [user_id, device_id]
-    );
-
-    const previous_reading =
-      lastReading.rows.length > 0 ? lastReading.rows[0].reading_5digit : 0;
-    const current_reading = reading_5digit;
-    const consumption = Math.max(current_reading - previous_reading, 0);
-    const ratePerCubic = 15.0;
-    const amount_to_pay = consumption * ratePerCubic;
-
-    const consumptionResult = await pool.query(
-      `INSERT INTO water_consumption 
-       (user_id, device_id, reading_5digit, previous_reading, current_reading, consumption) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
-       RETURNING reading_id, timestamp`,
-      [user_id, device_id, reading_5digit, previous_reading, current_reading, consumption]
-    );
-
-    const reading_id = consumptionResult.rows[0].reading_id;
-    const timestamp = consumptionResult.rows[0].timestamp;
-    const bill_number = `BILL-${user_id}-${reading_id}-${new Date().getFullYear()}`;
-    const period_start = new Date(new Date(timestamp).setDate(new Date(timestamp).getDate() - 29));
-    const period_end = timestamp;
-    const due_date = new Date(new Date(timestamp).setDate(new Date(timestamp).getDate() + 5));
-
-    await pool.query(
-      `INSERT INTO water_bills 
-       (user_id, reading_id, bill_number, period_start, period_end, due_date, amount_to_pay) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [user_id, reading_id, bill_number, period_start, period_end, due_date, amount_to_pay]
-    );
-
-    res.json({
-      success: true,
-      message: "Reading and bill added successfully",
-      data: { bill_number, previous_reading, current_reading, consumption, amount_to_pay, period_start, period_end, due_date },
-    });
-  } catch (err) {
-    console.error("❌ Add reading error:", err);
-    res.status(500).json({ success: false, error: "Failed to add reading" });
-  }
-});
-
-// ==========================
-// 📌 Water Bills
+// 📊 Water Bills & Consumption Routes
 // ==========================
 app.get("/water-bills/:user_id", async (req, res) => {
   const { user_id } = req.params;
@@ -306,71 +239,6 @@ app.get("/water-bills/:user_id", async (req, res) => {
   }
 });
 
-// ==========================
-// 📌 Leak Detection + Notifications
-// ==========================
-function isValidExpoPushToken(token) {
-  return typeof token === "string" && token.startsWith("ExponentPushToken");
-}
-
-async function sendExpoPushAndStore(expoToken, user_id, title, body, extra = {}) {
-  if (!expoToken || !isValidExpoPushToken(expoToken)) return;
-  try {
-    await axios.post("https://exp.host/--/api/v2/push/send", {
-      to: expoToken,
-      sound: "default",
-      title,
-      body,
-      data: extra,
-    });
-
-    await pool.query(
-      `INSERT INTO notifications (user_id, message, type) VALUES ($1, $2, $3)`,
-      [user_id, body, extra?.type || "alert"]
-    );
-  } catch (err) {
-    console.error("❌ Expo push error:", err.message);
-  }
-}
-
-cron.schedule("*/10 * * * *", async () => {
-  console.log("🔎 Running leak detection...");
-  try {
-    const users = await pool.query(
-      "SELECT user_id, expo_token FROM user_tokens WHERE expo_token IS NOT NULL AND expo_token <> ''"
-    );
-
-    for (const user of users.rows) {
-      const readings = await pool.query(
-        "SELECT consumption FROM water_consumption WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 5",
-        [user.user_id]
-      );
-
-      const data = readings.rows.map((r) => Number(r.consumption) || 0);
-      if (data.length < 2) continue;
-
-      const latest = data[0];
-      const avg = data.slice(1).reduce((a, b) => a + b, 0) / (data.length - 1);
-
-      if (latest > avg * 1.5) {
-        console.log(`⚠️ Leak suspected for user ${user.user_id}`);
-        await sendExpoPushAndStore(
-          user.expo_token,
-          user.user_id,
-          "🚨 Water Leak Alert",
-          `Your latest consumption (${latest} cu.m.) is higher than average (${avg.toFixed(1)} cu.m.).`,
-          { type: "leak_alert" }
-        );
-      }
-    }
-  } catch (err) {
-    console.error("❌ Leak detection error:", err);
-  }
-});
-
-// ==========================
-// 📊 Consumption
-// ==========================
 app.get("/consumption/:user_id", async (req, res) => {
   const { user_id } = req.params;
   try {
