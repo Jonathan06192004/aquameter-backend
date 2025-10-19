@@ -50,6 +50,13 @@ pool
   .catch((err) => console.error("❌ Database connection error:", err.message));
 
 // ==========================
+// 🌐 Root route (for Render test)
+// ==========================
+app.get("/", (req, res) => {
+  res.json({ success: true, message: "🌊 AquaMeter Backend is Running!" });
+});
+
+// ==========================
 // 📌 Register
 // ==========================
 app.post("/register", async (req, res) => {
@@ -67,7 +74,15 @@ app.post("/register", async (req, res) => {
     const result = await pool.query(
       `INSERT INTO users (username, password, email, first_name, last_name, middle_initial, mobile_number)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING user_id`,
-      [username, password, email, first_name, last_name, middle_initial, mobile_number]
+      [
+        username,
+        password,
+        email,
+        first_name,
+        last_name,
+        middle_initial,
+        mobile_number,
+      ]
     );
     res.json({ success: true, userId: result.rows[0].user_id });
   } catch (err) {
@@ -96,7 +111,7 @@ app.post("/login", async (req, res) => {
 });
 
 // ==========================
-// 📌 Save Push Token (UPDATED for user_tokens table)
+// 📌 Save Push Token
 // ==========================
 app.post("/api/save-push-token", async (req, res) => {
   const { user_id, expo_token, fcm_token } = req.body;
@@ -190,7 +205,7 @@ app.get("/profile/:user_id", async (req, res) => {
     );
     if (result.rows.length > 0)
       res.json({ success: true, user: result.rows[0] });
-    else res.json({ success: false, message: "User not found" });
+    else res.status(404).json({ success: false, message: "User not found" });
   } catch (err) {
     console.error("❌ Profile fetch error:", err);
     res.status(500).json({ success: false, error: "Server error" });
@@ -292,7 +307,7 @@ app.get("/water-bills/:user_id", async (req, res) => {
 });
 
 // ==========================
-// 📌 Leak Detection + Notifications (UPDATED)
+// 📌 Leak Detection + Notifications
 // ==========================
 function isValidExpoPushToken(token) {
   return typeof token === "string" && token.startsWith("ExponentPushToken");
@@ -372,6 +387,14 @@ app.get("/consumption/:user_id", async (req, res) => {
     console.error("❌ Consumption fetch error:", err);
     res.status(500).json({ success: false, error: "Server error" });
   }
+});
+
+// ==========================
+// ❌ Catch-All for Undefined Routes
+// ==========================
+app.use((req, res) => {
+  console.warn(`⚠️ Invalid route accessed: ${req.originalUrl}`);
+  res.status(404).json({ success: false, error: "Route not found" });
 });
 
 // ==========================
