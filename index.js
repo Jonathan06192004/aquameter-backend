@@ -17,10 +17,15 @@ app.use(cors());
 app.use(express.json());
 
 // ==========================
-// 📂 File Upload Setup
+// 📂 File Upload Setup (FIXED)
 // ==========================
-const uploadDir = path.join(process.cwd(), "uploads");
+const __dirname = path.resolve(); // ✅ Added this
+const uploadDir = path.join(__dirname, "uploads");
+
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+
+// ✅ More reliable static route with fallthrough disabled
+app.use("/uploads", express.static(uploadDir, { fallthrough: false }));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
@@ -28,7 +33,6 @@ const storage = multer.diskStorage({
     cb(null, Date.now() + path.extname(file.originalname)),
 });
 const upload = multer({ storage });
-app.use("/uploads", express.static(uploadDir));
 
 // ==========================
 // 📌 PostgreSQL Connection
@@ -57,7 +61,7 @@ app.get("/", (req, res) => {
 });
 
 // ==========================
-// 📌 HOME Route
+// 📌 HOME Route (FIXED URL BUILDER)
 // ==========================
 app.get("/home/:id", async (req, res) => {
   const { id } = req.params;
@@ -72,8 +76,11 @@ app.get("/home/:id", async (req, res) => {
 
     const user = result.rows[0];
 
+    // ✅ Fixed URL concatenation (handles missing slash)
     if (user.profile_image && !user.profile_image.startsWith("http")) {
-      user.profile_image = `${req.protocol}://${req.get("host")}${user.profile_image}`;
+      user.profile_image = `${req.protocol}://${req.get("host")}${
+        user.profile_image.startsWith("/") ? "" : "/"
+      }${user.profile_image}`;
     }
 
     res.json({ success: true, user });
@@ -289,10 +296,12 @@ app.put("/smart-device/:device_id/status", async (req, res) => {
 });
 
 // ==========================
-// ❌ Catch-All for Undefined Routes
+// ❌ Catch-All for Undefined Routes (FIXED)
 // ==========================
 app.use((req, res) => {
-  console.warn(`⚠️ Invalid route accessed: ${req.originalUrl}`);
+  if (!req.originalUrl.startsWith("/uploads")) {
+    console.warn(`⚠️ Invalid route accessed: ${req.originalUrl}`);
+  }
   res.status(404).json({ success: false, error: "Route not found" });
 });
 
