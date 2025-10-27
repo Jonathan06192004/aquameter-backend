@@ -14,24 +14,21 @@ app.use(cors());
 app.use(express.json());
 
 // ==========================
-// 📂 File Upload Setup (CLEAN + SAFE)
+// 📂 File Upload Setup
 // ==========================
 const __dirname = path.resolve();
 const uploadDir = path.join(__dirname, "uploads");
-
-// Ensure uploads folder exists
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
-// ✅ Serve uploads folder (no warnings if missing)
 app.use(
   "/uploads",
   express.static(uploadDir, {
-    fallthrough: true, // Don’t crash if file not found
+    fallthrough: true,
   })
 );
 
 // ==========================
-// 📦 Multer setup for uploads
+// 📦 Multer setup
 // ==========================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
@@ -67,7 +64,7 @@ app.get("/", (req, res) => {
 });
 
 // ==========================
-// 🏠 HOME Route (Clean + Safe)
+// 🏠 HOME Route
 // ==========================
 app.get("/home/:id", async (req, res) => {
   const { id } = req.params;
@@ -81,8 +78,6 @@ app.get("/home/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
 
     const user = result.rows[0];
-
-    // ✅ Build image URL only if profile_image exists
     if (user.profile_image && user.profile_image.trim() !== "") {
       if (!user.profile_image.startsWith("http")) {
         user.profile_image = `${req.protocol}://${req.get("host")}${
@@ -90,7 +85,6 @@ app.get("/home/:id", async (req, res) => {
         }${user.profile_image}`;
       }
     } else {
-      // If empty, just remove the field
       delete user.profile_image;
     }
 
@@ -196,7 +190,7 @@ app.post("/api/save-push-token", async (req, res) => {
 });
 
 // ==========================
-// 🧑‍💼 Profile Routes (with clean handling)
+// 🧑‍💼 Profile Routes
 // ==========================
 app.get("/profile/:user_id", async (req, res) => {
   const { user_id } = req.params;
@@ -279,19 +273,64 @@ app.get("/water-readings/:user_id", async (req, res) => {
 });
 
 // ==========================
+// 🧩 POST endpoint for FastAPI bridge
+// ==========================
+app.post("/api/water-readings", async (req, res) => {
+  const { device_id, user_id, reading_value } = req.body;
+
+  if (!device_id || !user_id || reading_value === undefined) {
+    return res.status(400).json({ success: false, message: "Missing fields" });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO water_readings (device_id, user_id, consumption, timestamp)
+       VALUES ($1, $2, $3, NOW())`,
+      [device_id, user_id, reading_value]
+    );
+
+    res.status(200).json({ success: true, message: "Reading saved successfully" });
+  } catch (err) {
+    console.error("❌ Error saving water reading:", err.message);
+    res.status(500).json({ success: false, message: "Database error" });
+  }
+});
+
+// ==========================
 // ⚙️ Smart Device Routes
 // ==========================
 app.get("/smart-device/:user_id", async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
-      "SELECT device_id, device_name, device_type, device_status FROM smart_device WHERE user_id = $1",
+      "SELECT device_id, device_serial, location, device_status, installed_at FROM smart_device WHERE user_id = $1",
       [user_id]
     );
     res.json({ success: true, devices: result.rows });
   } catch (err) {
     console.error("❌ Smart device fetch error:", err.message);
     res.status(500).json({ success: false, error: "Server error" });
+  }
+});
+
+// ✅ Add Smart Device Registration Route
+app.post("/smart-device/register", async (req, res) => {
+  const { user_id, device_serial, location } = req.body;
+
+  if (!user_id || !device_serial || !location) {
+    return res.status(400).json({ success: false, message: "Missing fields" });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO smart_device (user_id, device_serial, location, installed_at, device_status)
+       VALUES ($1, $2, $3, NOW(), 'Active') RETURNING device_id`,
+      [user_id, device_serial, location]
+    );
+    res.json({ success: true, message: "Smart device registered successfully", device_id: result.rows[0].device_id });
+  } catch (err) {
+    console.error("❌ Smart device register error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to register smart device" });
   }
 });
 
@@ -311,10 +350,58 @@ app.put("/smart-device/:device_id/status", async (req, res) => {
 });
 
 // ==========================
-// 🚫 Catch-All Route (Silent for uploads)
+// 🔔 Notifications Routes
+// ==========================
+app.get("/notifications/:user_id", async (req, res) => {
+  const { user_id } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT id, message, type, created_at, is_read
+       FROM notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [user_id]
+    );
+    res.json({ success: true, notifications: result.rows });
+  } catch (err) {
+    console.error("❌ Notifications fetch error:", err.message);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+});
+
+app.post("/notifications", async (req, res) => {
+  const { user_id, message, type } = req.body;
+  if (!user_id || !message || !type)
+    return res.status(400).json({ success: false, message: "Missing fields" });
+
+  try {
+    await pool.query(
+      `INSERT INTO notifications (user_id, message, type, created_at, is_read)
+       VALUES ($1, $2, $3, NOW(), false)`,
+      [user_id, message, type]
+    );
+    res.json({ success: true, message: "Notification sent successfully" });
+  } catch (err) {
+    console.error("❌ Notification creation error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to create notification" });
+  }
+});
+
+app.put("/notifications/:id/read", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query("UPDATE notifications SET is_read = true WHERE id = $1", [id]);
+    res.json({ success: true, message: "Notification marked as read" });
+  } catch (err) {
+    console.error("❌ Notification update error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to update notification" });
+  }
+});
+
+// ==========================
+// 🚫 Catch-All Route
 // ==========================
 app.use((req, res) => {
-  // Don’t log /uploads or /favicon.ico
   if (!req.originalUrl.startsWith("/uploads") && req.originalUrl !== "/favicon.ico") {
     console.warn(`⚠️ Invalid route accessed: ${req.originalUrl}`);
   }
