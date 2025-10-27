@@ -1,316 +1,170 @@
-// index.js
-import dotenv from "dotenv";
-dotenv.config();
-
+// index.js — Clean & Production-Ready Backend for ClearMeter / AquaMeter
 import express from "express";
-import { Pool } from "pg";
 import cors from "cors";
+import bodyParser from "body-parser";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
-import crypto from "crypto";
-import axios from "axios";
-import cron from "node-cron";
+import { fileURLToPath } from "url";
+import pkg from "pg";
 
+const { Pool } = pkg;
 const app = express();
+
+// Setup paths
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-// ==========================
-// 📂 File Upload Setup (FIXED)
-// ==========================
-const __dirname = path.resolve(); // ✅ Added this
-const uploadDir = path.join(__dirname, "uploads");
+// ✅ Serve uploads directory publicly
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+// PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || "postgresql://aquameter_user:your_password@localhost:5432/aquameter",
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+});
 
-// ✅ More reliable static route with fallthrough disabled
-app.use("/uploads", express.static(uploadDir, { fallthrough: false }));
+pool.connect()
+  .then(() => console.log("✅ Connected to PostgreSQL"))
+  .catch((err) => console.error("❌ PostgreSQL connection error:", err));
 
+// Multer setup for file uploads
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) =>
-    cb(null, Date.now() + path.extname(file.originalname)),
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => cb(null, `${Date.now()}_${file.originalname}`),
 });
 const upload = multer({ storage });
 
-// ==========================
-// 📌 PostgreSQL Connection
-// ==========================
-const isRender =
-  process.env.RENDER === "true" ||
-  process.env.DATABASE_URL?.includes("render.com");
+// 🟩 ROUTES START HERE
 
-const pool = new Pool({
-  connectionString:
-    process.env.DATABASE_URL ||
-    "postgresql://aquameter_user:q0JSnRKWQlpJrgHlKostKPTOXN9Rz0xp@dpg-d3ht4abuibrs73b6qkgg-a.singapore-postgres.render.com/aquameter",
-  ssl: isRender ? { rejectUnauthorized: false } : false,
-});
+// ✅ Home route
+app.get("/", (req, res) => res.send("🌊 AquaMeter Backend Running..."));
 
-pool
-  .connect()
-  .then(() => console.log("✅ Connected to PostgreSQL database"))
-  .catch((err) => console.error("❌ Database connection error:", err.message));
-
-// ==========================
-// 🌐 Root route
-// ==========================
-app.get("/", (req, res) => {
-  res.json({ success: true, message: "🌊 AquaMeter Backend is Running!" });
-});
-
-// ==========================
-// 📌 HOME Route (FIXED URL BUILDER)
-// ==========================
-app.get("/home/:id", async (req, res) => {
-  const { id } = req.params;
+// ✅ Register Expo + FCM push token
+app.post("/register-push-token", async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT user_id, username, email, first_name, last_name, middle_initial, mobile_number, profile_image FROM users WHERE user_id = $1",
-      [id]
+    const { user_id, expo_push_token, fcm_token } = req.body;
+
+    if (!user_id || !expo_push_token)
+      return res.status(400).json({ success: false, message: "Missing tokens or user ID" });
+
+    await pool.query(
+      `INSERT INTO user_tokens (user_id, expo_push_token, fcm_token)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id)
+       DO UPDATE SET expo_push_token = EXCLUDED.expo_push_token, fcm_token = EXCLUDED.fcm_token`,
+      [user_id, expo_push_token, fcm_token]
     );
 
-    if (result.rows.length === 0)
-      return res.status(404).json({ success: false, message: "User not found" });
-
-    const user = result.rows[0];
-
-    // ✅ Fixed URL concatenation (handles missing slash)
-    if (user.profile_image && !user.profile_image.startsWith("http")) {
-      user.profile_image = `${req.protocol}://${req.get("host")}${
-        user.profile_image.startsWith("/") ? "" : "/"
-      }${user.profile_image}`;
-    }
-
-    res.json({ success: true, user });
+    res.json({ success: true, message: "Push token registered" });
   } catch (error) {
-    console.error("❌ Error fetching user for /home:", error);
+    console.error("❌ Error registering push token:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ==========================
-// 📌 Register
-// ==========================
-app.post("/register", async (req, res) => {
-  const {
-    username,
-    password,
-    email,
-    first_name,
-    last_name,
-    middle_initial,
-    mobile_number,
-  } = req.body;
-
-  if (!username || !password)
-    return res.status(400).json({ success: false, error: "Missing fields" });
-
+// ✅ Fetch home data (user info)
+app.get("/home/:id", async (req, res) => {
   try {
-    const result = await pool.query(
-      `INSERT INTO users (username, password, email, first_name, last_name, middle_initial, mobile_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING user_id`,
-      [
-        username,
-        password,
-        email,
-        first_name,
-        last_name,
-        middle_initial,
-        mobile_number,
-      ]
-    );
-    res.json({ success: true, userId: result.rows[0].user_id });
-  } catch (err) {
-    console.error("❌ Database error:", err);
-    res.status(500).json({ success: false, error: "Failed to register user" });
+    const { id } = req.params;
+    const result = await pool.query("SELECT * FROM users WHERE user_id = $1", [id]);
+
+    if (result.rows.length === 0)
+      return res.status(404).json({ success: false, message: "User not found" });
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error("❌ Error fetching home data:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ==========================
-// 📌 Login
-// ==========================
-app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password)
-    return res.status(400).json({ success: false, error: "Missing username or password" });
-
+// ✅ Upload profile image
+app.post("/profile/:id/upload", upload.single("profile_image"), async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM users WHERE username = $1 AND password = $2",
-      [username, password]
-    );
-    if (result.rows.length > 0)
-      res.json({ success: true, user: result.rows[0] });
-    else res.json({ success: false, message: "Invalid username or password" });
-  } catch (err) {
-    console.error("❌ Login error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
+    const { id } = req.params;
+    const profileImage = `/uploads/${req.file.filename}`;
 
-// ==========================
-// 📌 Save Push Token
-// ==========================
-app.post("/api/save-push-token", async (req, res) => {
-  const { user_id, expo_token, fcm_token } = req.body;
-
-  if (!user_id)
-    return res.status(400).json({ success: false, error: "Missing user_id" });
-
-  try {
-    const existing = await pool.query(
-      "SELECT * FROM user_tokens WHERE user_id = $1",
-      [user_id]
-    );
-
-    if (existing.rows.length > 0) {
-      await pool.query(
-        "UPDATE user_tokens SET expo_token = $1, fcm_token = $2 WHERE user_id = $3",
-        [expo_token, fcm_token, user_id]
-      );
-    } else {
-      await pool.query(
-        "INSERT INTO user_tokens (user_id, expo_token, fcm_token) VALUES ($1, $2, $3)",
-        [user_id, expo_token, fcm_token]
-      );
-    }
-
-    res.json({ success: true, message: "Push token saved successfully" });
-  } catch (err) {
-    console.error("❌ Save token error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to save token" });
-  }
-});
-
-// ==========================
-// 📌 Profile Routes
-// ==========================
-app.get("/profile/:user_id", async (req, res) => {
-  const { user_id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT user_id, username, email, first_name, last_name, middle_initial, mobile_number, profile_image 
-       FROM users WHERE user_id = $1`,
-      [user_id]
-    );
-    if (result.rows.length > 0)
-      res.json({ success: true, user: result.rows[0] });
-    else res.status(404).json({ success: false, message: "User not found" });
-  } catch (err) {
-    console.error("❌ Profile fetch error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
-app.post("/profile/:user_id/upload", upload.single("profile_image"), async (req, res) => {
-  const { user_id } = req.params;
-  if (!req.file)
-    return res.status(400).json({ success: false, message: "No file uploaded" });
-
-  const filePath = `/uploads/${req.file.filename}`;
-  try {
-    await pool.query("UPDATE users SET profile_image = $1 WHERE user_id = $2", [
-      filePath,
-      user_id,
-    ]);
-    res.json({ success: true, profile_image: filePath });
-  } catch (err) {
-    console.error("❌ Profile image upload error:", err);
-    res.status(500).json({ success: false, error: "Failed to save profile image" });
-  }
-});
-
-// ==========================
-// 📊 Estimated Water Bill & Water Readings Routes
-// ==========================
-app.get("/estimated-water-bill/:user_id", async (req, res) => {
-  const { user_id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT wb.bill_id, wb.period_start, wb.period_end, wb.due_date, 
-              wb.amount_to_pay::FLOAT AS amount_to_pay,
-              wc.previous_reading, wc.current_reading, wc.consumption
-       FROM estimated_water_bill wb
-       LEFT JOIN water_readings wc ON wb.reading_id = wc.reading_id
-       WHERE wb.user_id = $1
-       ORDER BY wb.period_end DESC`,
-      [user_id]
-    );
-    res.json({ success: true, data: result.rows });
-  } catch (err) {
-    console.error("❌ Estimated water bill fetch error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
-app.get("/water-readings/:user_id", async (req, res) => {
-  const { user_id } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT timestamp, COALESCE(consumption,0)::FLOAT AS consumption
-       FROM water_readings
-       WHERE user_id=$1
-       ORDER BY timestamp ASC
-       LIMIT 12`,
-      [user_id]
-    );
-    res.json({ success: true, data: result.rows });
-  } catch (err) {
-    console.error("❌ Water readings fetch error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
-// ==========================
-// 💧 Smart Device Routes
-// ==========================
-app.get("/smart-device/:user_id", async (req, res) => {
-  const { user_id } = req.params;
-  try {
-    const result = await pool.query(
-      "SELECT device_id, device_name, device_type, device_status FROM smart_device WHERE user_id = $1",
-      [user_id]
-    );
-    res.json({ success: true, devices: result.rows });
-  } catch (err) {
-    console.error("❌ Smart device fetch error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
-app.put("/smart-device/:device_id/status", async (req, res) => {
-  const { device_id } = req.params;
-  const { device_status } = req.body;
-  try {
     await pool.query(
-      "UPDATE smart_device SET device_status = $1 WHERE device_id = $2",
-      [device_status, device_id]
+      "UPDATE users SET profile_image = $1 WHERE user_id = $2",
+      [profileImage, id]
     );
-    res.json({ success: true, message: "Device status updated" });
-  } catch (err) {
-    console.error("❌ Device status update error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
+
+    res.json({ success: true, profile_image: profileImage });
+  } catch (error) {
+    console.error("❌ Image upload error:", error);
+    res.status(500).json({ success: false, message: "Failed to upload image" });
   }
 });
 
-// ==========================
-// ❌ Catch-All for Undefined Routes (FIXED)
-// ==========================
+// ✅ Get user profile
+app.get("/profile/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query("SELECT * FROM users WHERE user_id = $1", [id]);
+
+    if (result.rows.length === 0)
+      return res.status(404).json({ success: false, message: "User not found" });
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error("❌ Profile fetch error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ✅ Water readings (formerly water_consumption)
+app.get("/water-readings/:user_id", async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const result = await pool.query(
+      "SELECT * FROM water_readings WHERE user_id = $1 ORDER BY reading_date DESC",
+      [user_id]
+    );
+    res.json({ success: true, readings: result.rows });
+  } catch (error) {
+    console.error("❌ Error fetching water readings:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ✅ Estimated water bill (formerly water_bills)
+app.get("/estimated-water-bill/:user_id", async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const result = await pool.query(
+      "SELECT * FROM estimated_water_bill WHERE user_id = $1 ORDER BY billing_date DESC",
+      [user_id]
+    );
+    res.json({ success: true, bills: result.rows });
+  } catch (error) {
+    console.error("❌ Error fetching estimated bills:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ✅ Smart device management (includes device_status)
+app.get("/smart-device/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query("SELECT * FROM smart_device WHERE device_id = $1", [id]);
+    res.json({ success: true, device: result.rows[0] });
+  } catch (error) {
+    console.error("❌ Smart device fetch error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// 🟥 404 fallback for invalid routes
 app.use((req, res) => {
-  if (!req.originalUrl.startsWith("/uploads")) {
-    console.warn(`⚠️ Invalid route accessed: ${req.originalUrl}`);
-  }
-  res.status(404).json({ success: false, error: "Route not found" });
+  console.warn(`⚠️ Invalid route accessed: ${req.originalUrl}`);
+  res.status(404).json({ success: false, message: "Invalid route" });
 });
 
-// ==========================
-// 📌 Server Listener
-// ==========================
+// ✅ Start server
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Server running on port ${PORT}`);
-});
-
-export default pool;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
