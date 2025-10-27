@@ -50,14 +50,14 @@ pool
   .catch((err) => console.error("❌ Database connection error:", err.message));
 
 // ==========================
-// 🌐 Root route (for Render test)
+// 🌐 Root route
 // ==========================
 app.get("/", (req, res) => {
   res.json({ success: true, message: "🌊 AquaMeter Backend is Running!" });
 });
 
 // ==========================
-// 📌 HOME Route (fetch user info)
+// 📌 HOME Route
 // ==========================
 app.get("/home/:id", async (req, res) => {
   const { id } = req.params;
@@ -72,7 +72,6 @@ app.get("/home/:id", async (req, res) => {
 
     const user = result.rows[0];
 
-    // Add Render URL to profile_image path
     if (user.profile_image && !user.profile_image.startsWith("http")) {
       user.profile_image = `${req.protocol}://${req.get("host")}${user.profile_image}`;
     }
@@ -217,34 +216,34 @@ app.post("/profile/:user_id/upload", upload.single("profile_image"), async (req,
 });
 
 // ==========================
-// 📊 Water Bills & Consumption Routes
+// 📊 Estimated Water Bill & Water Readings Routes
 // ==========================
-app.get("/water-bills/:user_id", async (req, res) => {
+app.get("/estimated-water-bill/:user_id", async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
-      `SELECT wb.bill_number, wb.period_start, wb.period_end, wb.due_date, 
+      `SELECT wb.bill_id, wb.period_start, wb.period_end, wb.due_date, 
               wb.amount_to_pay::FLOAT AS amount_to_pay,
               wc.previous_reading, wc.current_reading, wc.consumption
-       FROM water_bills wb
-       LEFT JOIN water_consumption wc ON wb.reading_id = wc.reading_id
+       FROM estimated_water_bill wb
+       LEFT JOIN water_readings wc ON wb.reading_id = wc.reading_id
        WHERE wb.user_id = $1
        ORDER BY wb.period_end DESC`,
       [user_id]
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.error("❌ Water bills fetch error:", err);
+    console.error("❌ Estimated water bill fetch error:", err);
     res.status(500).json({ success: false, error: "Server error" });
   }
 });
 
-app.get("/consumption/:user_id", async (req, res) => {
+app.get("/water-readings/:user_id", async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
       `SELECT timestamp, COALESCE(consumption,0)::FLOAT AS consumption
-       FROM water_consumption
+       FROM water_readings
        WHERE user_id=$1
        ORDER BY timestamp ASC
        LIMIT 12`,
@@ -252,7 +251,39 @@ app.get("/consumption/:user_id", async (req, res) => {
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.error("❌ Consumption fetch error:", err);
+    console.error("❌ Water readings fetch error:", err);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+});
+
+// ==========================
+// 💧 Smart Device Routes
+// ==========================
+app.get("/smart-device/:user_id", async (req, res) => {
+  const { user_id } = req.params;
+  try {
+    const result = await pool.query(
+      "SELECT device_id, device_name, device_type, device_status FROM smart_device WHERE user_id = $1",
+      [user_id]
+    );
+    res.json({ success: true, devices: result.rows });
+  } catch (err) {
+    console.error("❌ Smart device fetch error:", err);
+    res.status(500).json({ success: false, error: "Server error" });
+  }
+});
+
+app.put("/smart-device/:device_id/status", async (req, res) => {
+  const { device_id } = req.params;
+  const { device_status } = req.body;
+  try {
+    await pool.query(
+      "UPDATE smart_device SET device_status = $1 WHERE device_id = $2",
+      [device_status, device_id]
+    );
+    res.json({ success: true, message: "Device status updated" });
+  } catch (err) {
+    console.error("❌ Device status update error:", err);
     res.status(500).json({ success: false, error: "Server error" });
   }
 });
