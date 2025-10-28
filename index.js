@@ -12,6 +12,7 @@ import fs from "fs";
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ==========================
 // 📂 File Upload Setup
@@ -276,10 +277,16 @@ app.get("/water-readings/:user_id", async (req, res) => {
 // 🧩 POST endpoint for FastAPI bridge
 // ==========================
 app.post("/api/water-readings", async (req, res) => {
+  console.log("Received body:", req.body);
+
   const { device_id, user_id, reading_value } = req.body;
 
   if (!device_id || !user_id || reading_value === undefined) {
-    return res.status(400).json({ success: false, message: "Missing fields" });
+    return res.status(400).json({
+      success: false,
+      message: "Missing required fields",
+      received: req.body
+    });
   }
 
   try {
@@ -289,9 +296,12 @@ app.post("/api/water-readings", async (req, res) => {
       [device_id, user_id, reading_value]
     );
 
-    res.status(200).json({ success: true, message: "Reading saved successfully" });
-  } catch (err) {
-    console.error("❌ Error saving water reading:", err.message);
+    res.status(200).json({
+      success: true,
+      message: "Reading saved successfully"
+    });
+  } catch (error) {
+    console.error("Error saving water reading:", error.message);
     res.status(500).json({ success: false, message: "Database error" });
   }
 });
