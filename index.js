@@ -279,29 +279,31 @@ app.get("/water-readings/:user_id", async (req, res) => {
 app.post("/api/water-readings", async (req, res) => {
   console.log("Received body:", req.body);
 
-  const { device_id, user_id, reading_value } = req.body;
+  const { device_id, user_id, reading_5digit } = req.body;
 
-  if (!device_id || !user_id || reading_value === undefined) {
+  // Validate required fields
+  if (!device_id || !user_id || reading_5digit === undefined) {
     return res.status(400).json({
       success: false,
       message: "Missing required fields",
-      received: req.body
+      received: req.body,
     });
   }
 
   try {
+    // Insert new reading
     await pool.query(
-      `INSERT INTO water_readings (device_id, user_id, consumption, timestamp)
+      `INSERT INTO water_readings (device_id, user_id, reading_5digit, timestamp)
        VALUES ($1, $2, $3, NOW())`,
-      [device_id, user_id, reading_value]
+      [device_id, user_id, reading_5digit]
     );
 
     res.status(200).json({
       success: true,
-      message: "Reading saved successfully"
+      message: "✅ Reading_5digit saved successfully",
     });
   } catch (error) {
-    console.error("Error saving water reading:", error.message);
+    console.error("❌ Error saving water reading:", error.message);
     res.status(500).json({ success: false, message: "Database error" });
   }
 });
