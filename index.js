@@ -191,7 +191,7 @@ app.post("/api/save-push-token", async (req, res) => {
 });
 
 // ==========================
-// 🧑‍💼 Profile Routes
+// 🧑‍💼 Profile Routes (Fixed)
 // ==========================
 app.get("/profile/:user_id", async (req, res) => {
   const { user_id } = req.params;
@@ -201,13 +201,24 @@ app.get("/profile/:user_id", async (req, res) => {
        FROM users WHERE user_id = $1`,
       [user_id]
     );
-    if (result.rows.length > 0) {
-      const user = result.rows[0];
-      if (!user.profile_image || user.profile_image.trim() === "") {
-        delete user.profile_image;
+
+    if (result.rows.length === 0)
+      return res.status(404).json({ success: false, message: "User not found" });
+
+    const user = result.rows[0];
+
+    // ✅ Make sure image is a full URL
+    if (user.profile_image && user.profile_image.trim() !== "") {
+      if (!user.profile_image.startsWith("http")) {
+        user.profile_image = `${req.protocol}://${req.get("host")}${
+          user.profile_image.startsWith("/") ? "" : "/"
+        }${user.profile_image}`;
       }
-      res.json({ success: true, user });
-    } else res.status(404).json({ success: false, message: "User not found" });
+    } else {
+      delete user.profile_image;
+    }
+
+    res.json({ success: true, user });
   } catch (err) {
     console.error("❌ Profile fetch error:", err.message);
     res.status(500).json({ success: false, error: "Server error" });
