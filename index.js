@@ -65,13 +65,14 @@ app.get("/", (req, res) => {
 });
 
 // ==========================
-// 🏠 HOME Route
+// 🏠 HOME Route (Fixed for Render URL)
 // ==========================
 app.get("/home/:id", async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query(
-      "SELECT user_id, username, email, first_name, last_name, middle_initial, mobile_number, profile_image FROM users WHERE user_id = $1",
+      `SELECT user_id, username, email, first_name, last_name, middle_initial, mobile_number, profile_image 
+       FROM users WHERE user_id = $1`,
       [id]
     );
 
@@ -79,9 +80,15 @@ app.get("/home/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
 
     const user = result.rows[0];
+
+    // ✅ Fix: Always use Render base URL if hosted live
+    const BASE_URL =
+      process.env.RENDER_EXTERNAL_URL ||
+      "https://aquameter-backend.onrender.com";
+
     if (user.profile_image && user.profile_image.trim() !== "") {
       if (!user.profile_image.startsWith("http")) {
-        user.profile_image = `${req.protocol}://${req.get("host")}${
+        user.profile_image = `${BASE_URL}${
           user.profile_image.startsWith("/") ? "" : "/"
         }${user.profile_image}`;
       }
