@@ -48,7 +48,7 @@ const isRender =
 const pool = new Pool({
   connectionString:
     process.env.DATABASE_URL ||
-    "postgresql://aquameter_user:q0JSnRKWQlpJrgHlKostKPTOXN9Rz0xp@dpg-d3ht4abuibrs73b6qkgg-a.singapore-postgres.render.com/aquameter",
+    "postgresql://aquameter_user:J2cpNXQznZllOKRSvXv5GGtxQYuzgA3z@dpg-d44qseuuk2gs73fl9e8g-a.singapore-postgres.render.com/aquameter_3fag",
   ssl: isRender ? { rejectUnauthorized: false } : false,
 });
 
@@ -84,7 +84,7 @@ app.get("/home/:id", async (req, res) => {
     // ✅ Fix: Always use Render base URL if hosted live
     const BASE_URL =
       process.env.RENDER_EXTERNAL_URL ||
-      "https://aquameter-backend.onrender.com";
+      "https://aquameter-backend-8u1x.onrender.com";
 
     if (user.profile_image && user.profile_image.trim() !== "") {
       if (!user.profile_image.startsWith("http")) {
