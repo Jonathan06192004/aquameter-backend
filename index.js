@@ -9,6 +9,9 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
+import authRoutes from "./routes/auth.js"; // ✅ import auth routes
+import { authenticateToken } from "./middleware/authMiddleware.js"; // ✅ import JWT middleware
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -57,6 +60,8 @@ pool
   .then(() => console.log("✅ Connected to PostgreSQL database"))
   .catch((err) => console.error("❌ Database connection error:", err.message));
 
+export default pool;
+
 // ==========================
 // 🌊 Root route
 // ==========================
@@ -65,9 +70,14 @@ app.get("/", (req, res) => {
 });
 
 // ==========================
-// 🏠 HOME Route (Fixed for Render URL)
+// 🔐 Authentication Routes
 // ==========================
-app.get("/home/:id", async (req, res) => {
+app.use("/api/auth", authRoutes); // ✅ JWT-secured register/login
+
+// ==========================
+// 🏠 HOME Route (Protected)
+// ==========================
+app.get("/home/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query(
@@ -80,8 +90,6 @@ app.get("/home/:id", async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
 
     const user = result.rows[0];
-
-    // ✅ Fix: Always use Render base URL if hosted live
     const BASE_URL =
       process.env.RENDER_EXTERNAL_URL ||
       "https://aquameter-backend-8u1x.onrender.com";
@@ -104,69 +112,9 @@ app.get("/home/:id", async (req, res) => {
 });
 
 // ==========================
-// 👤 Register
+// 📱 Save Push Token (Protected)
 // ==========================
-app.post("/register", async (req, res) => {
-  const {
-    username,
-    password,
-    email,
-    first_name,
-    last_name,
-    middle_initial,
-    mobile_number,
-  } = req.body;
-
-  if (!username || !password)
-    return res.status(400).json({ success: false, error: "Missing fields" });
-
-  try {
-    const result = await pool.query(
-      `INSERT INTO users (username, password, email, first_name, last_name, middle_initial, mobile_number)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING user_id`,
-      [
-        username,
-        password,
-        email,
-        first_name,
-        last_name,
-        middle_initial,
-        mobile_number,
-      ]
-    );
-    res.json({ success: true, userId: result.rows[0].user_id });
-  } catch (err) {
-    console.error("❌ Database error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to register user" });
-  }
-});
-
-// ==========================
-// 🔑 Login
-// ==========================
-app.post("/login", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password)
-    return res.status(400).json({ success: false, error: "Missing username or password" });
-
-  try {
-    const result = await pool.query(
-      "SELECT * FROM users WHERE username = $1 AND password = $2",
-      [username, password]
-    );
-    if (result.rows.length > 0)
-      res.json({ success: true, user: result.rows[0] });
-    else res.json({ success: false, message: "Invalid username or password" });
-  } catch (err) {
-    console.error("❌ Login error:", err.message);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
-// ==========================
-// 📱 Save Push Token
-// ==========================
-app.post("/api/save-push-token", async (req, res) => {
+app.post("/api/save-push-token", authenticateToken, async (req, res) => {
   const { user_id, expo_token, fcm_token } = req.body;
 
   if (!user_id)
@@ -198,9 +146,9 @@ app.post("/api/save-push-token", async (req, res) => {
 });
 
 // ==========================
-// 🧑‍💼 Profile Routes (Fixed)
+// 🧑‍💼 Profile Routes (Protected)
 // ==========================
-app.get("/profile/:user_id", async (req, res) => {
+app.get("/profile/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
@@ -214,7 +162,6 @@ app.get("/profile/:user_id", async (req, res) => {
 
     const user = result.rows[0];
 
-    // ✅ Make sure image is a full URL
     if (user.profile_image && user.profile_image.trim() !== "") {
       if (!user.profile_image.startsWith("http")) {
         user.profile_image = `${req.protocol}://${req.get("host")}${
@@ -232,7 +179,7 @@ app.get("/profile/:user_id", async (req, res) => {
   }
 });
 
-app.post("/profile/:user_id/upload", upload.single("profile_image"), async (req, res) => {
+app.post("/profile/:user_id/upload", authenticateToken, upload.single("profile_image"), async (req, res) => {
   const { user_id } = req.params;
   if (!req.file)
     return res.status(400).json({ success: false, message: "No file uploaded" });
@@ -251,9 +198,9 @@ app.post("/profile/:user_id/upload", upload.single("profile_image"), async (req,
 });
 
 // ==========================
-// 💧 Estimated Water Bill & Readings
+// 💧 Estimated Water Bill & Readings (Protected)
 // ==========================
-app.get("/estimated-water-bill/:user_id", async (req, res) => {
+app.get("/estimated-water-bill/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
@@ -273,7 +220,7 @@ app.get("/estimated-water-bill/:user_id", async (req, res) => {
   }
 });
 
-app.get("/water-readings/:user_id", async (req, res) => {
+app.get("/water-readings/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
@@ -292,44 +239,9 @@ app.get("/water-readings/:user_id", async (req, res) => {
 });
 
 // ==========================
-// 🧩 POST endpoint for FastAPI bridge
+// ⚙️ Smart Device Routes (Protected)
 // ==========================
-app.post("/api/water-readings", async (req, res) => {
-  console.log("Received body:", req.body);
-
-  const { device_id, user_id, reading_5digit } = req.body;
-
-  // Validate required fields
-  if (!device_id || !user_id || reading_5digit === undefined) {
-    return res.status(400).json({
-      success: false,
-      message: "Missing required fields",
-      received: req.body,
-    });
-  }
-
-  try {
-    // Insert new reading
-    await pool.query(
-      `INSERT INTO water_readings (device_id, user_id, reading_5digit, timestamp)
-       VALUES ($1, $2, $3, NOW())`,
-      [device_id, user_id, reading_5digit]
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "✅ Reading_5digit saved successfully",
-    });
-  } catch (error) {
-    console.error("❌ Error saving water reading:", error.message);
-    res.status(500).json({ success: false, message: "Database error" });
-  }
-});
-
-// ==========================
-// ⚙️ Smart Device Routes
-// ==========================
-app.get("/smart-device/:user_id", async (req, res) => {
+app.get("/smart-device/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
@@ -343,8 +255,7 @@ app.get("/smart-device/:user_id", async (req, res) => {
   }
 });
 
-// ✅ Add Smart Device Registration Route
-app.post("/smart-device/register", async (req, res) => {
+app.post("/smart-device/register", authenticateToken, async (req, res) => {
   const { user_id, device_serial, location } = req.body;
 
   if (!user_id || !device_serial || !location) {
@@ -364,25 +275,10 @@ app.post("/smart-device/register", async (req, res) => {
   }
 });
 
-app.put("/smart-device/:device_id/status", async (req, res) => {
-  const { device_id } = req.params;
-  const { device_status } = req.body;
-  try {
-    await pool.query(
-      "UPDATE smart_device SET device_status = $1 WHERE device_id = $2",
-      [device_status, device_id]
-    );
-    res.json({ success: true, message: "Device status updated" });
-  } catch (err) {
-    console.error("❌ Device status update error:", err.message);
-    res.status(500).json({ success: false, error: "Server error" });
-  }
-});
-
 // ==========================
-// 🔔 Notifications Routes
+// 🔔 Notifications Routes (Protected)
 // ==========================
-app.get("/notifications/:user_id", async (req, res) => {
+app.get("/notifications/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
   try {
     const result = await pool.query(
@@ -399,7 +295,7 @@ app.get("/notifications/:user_id", async (req, res) => {
   }
 });
 
-app.post("/notifications", async (req, res) => {
+app.post("/notifications", authenticateToken, async (req, res) => {
   const { user_id, message, type } = req.body;
   if (!user_id || !message || !type)
     return res.status(400).json({ success: false, message: "Missing fields" });
@@ -414,17 +310,6 @@ app.post("/notifications", async (req, res) => {
   } catch (err) {
     console.error("❌ Notification creation error:", err.message);
     res.status(500).json({ success: false, error: "Failed to create notification" });
-  }
-});
-
-app.put("/notifications/:id/read", async (req, res) => {
-  const { id } = req.params;
-  try {
-    await pool.query("UPDATE notifications SET is_read = true WHERE id = $1", [id]);
-    res.json({ success: true, message: "Notification marked as read" });
-  } catch (err) {
-    console.error("❌ Notification update error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to update notification" });
   }
 });
 
@@ -445,5 +330,3 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
-
-export default pool;
