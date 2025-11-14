@@ -9,8 +9,9 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-import authRoutes from "./routes/auth.js"; // ✅ import auth routes
-import { authenticateToken } from "./middleware/authMiddleware.js"; // ✅ import JWT middleware
+import authRoutes from "./routes/auth.js"; // Auth routes
+import { authenticateToken } from "./middleware/authMiddleware.js"; // JWT middleware
+import adminRoutes from "./routes/admin.js"; // <-- ✅ NEW ADMIN ROUTE IMPORT
 
 const app = express();
 app.use(cors());
@@ -72,7 +73,15 @@ app.get("/", (req, res) => {
 // ==========================
 // 🔐 Authentication Routes
 // ==========================
-app.use("/api/auth", authRoutes); // ✅ JWT-secured register/login
+app.use("/api/auth", authRoutes);
+
+// ==========================
+// 🧑‍💼 ADMIN ROUTES
+// ==========================
+// Now your admin dashboard can call:
+// https://aquameter-backend-8u1x.onrender.com/admin/users
+// https://aquameter-backend-8u1x.onrender.com/admin/devices
+app.use("/admin", adminRoutes); // <-- ✅ REGISTERED HERE
 
 // ==========================
 // 🏠 HOME Route (Protected)
@@ -179,23 +188,28 @@ app.get("/profile/:user_id", authenticateToken, async (req, res) => {
   }
 });
 
-app.post("/profile/:user_id/upload", authenticateToken, upload.single("profile_image"), async (req, res) => {
-  const { user_id } = req.params;
-  if (!req.file)
-    return res.status(400).json({ success: false, message: "No file uploaded" });
+app.post(
+  "/profile/:user_id/upload",
+  authenticateToken,
+  upload.single("profile_image"),
+  async (req, res) => {
+    const { user_id } = req.params;
+    if (!req.file)
+      return res.status(400).json({ success: false, message: "No file uploaded" });
 
-  const filePath = `/uploads/${req.file.filename}`;
-  try {
-    await pool.query("UPDATE users SET profile_image = $1 WHERE user_id = $2", [
-      filePath,
-      user_id,
-    ]);
-    res.json({ success: true, profile_image: filePath });
-  } catch (err) {
-    console.error("❌ Profile image upload error:", err.message);
-    res.status(500).json({ success: false, error: "Failed to save profile image" });
+    const filePath = `/uploads/${req.file.filename}`;
+    try {
+      await pool.query(
+        "UPDATE users SET profile_image = $1 WHERE user_id = $2",
+        [filePath, user_id]
+      );
+      res.json({ success: true, profile_image: filePath });
+    } catch (err) {
+      console.error("❌ Profile image upload error:", err.message);
+      res.status(500).json({ success: false, error: "Failed to save profile image" });
+    }
   }
-});
+);
 
 // ==========================
 // 💧 Estimated Water Bill & Readings (Protected)
@@ -268,7 +282,11 @@ app.post("/smart-device/register", authenticateToken, async (req, res) => {
        VALUES ($1, $2, $3, NOW(), 'Active') RETURNING device_id`,
       [user_id, device_serial, location]
     );
-    res.json({ success: true, message: "Smart device registered successfully", device_id: result.rows[0].device_id });
+    res.json({
+      success: true,
+      message: "Smart device registered successfully",
+      device_id: result.rows[0].device_id,
+    });
   } catch (err) {
     console.error("❌ Smart device register error:", err.message);
     res.status(500).json({ success: false, error: "Failed to register smart device" });
