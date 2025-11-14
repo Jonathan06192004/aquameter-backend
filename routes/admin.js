@@ -1,8 +1,11 @@
-const express = require("express");
-const router = express.Router();
-const pool = require("../db");  // adjust path if needed
+import express from "express";
+import pool from "../index.js"; // your index.js exports the pool
 
-// Get total users
+const router = express.Router();
+
+// ==========================
+// 📌 Total Users Count
+// ==========================
 router.get("/users/count", async (req, res) => {
     try {
         const result = await pool.query("SELECT COUNT(*) FROM users");
@@ -12,7 +15,9 @@ router.get("/users/count", async (req, res) => {
     }
 });
 
-// Get total devices
+// ==========================
+// 📌 Total Devices Count
+// ==========================
 router.get("/devices/count", async (req, res) => {
     try {
         const result = await pool.query("SELECT COUNT(*) FROM smart_device");
@@ -22,24 +27,31 @@ router.get("/devices/count", async (req, res) => {
     }
 });
 
-// Get all users
+// ==========================
+// 📌 Get All Users
+// ==========================
 router.get("/users", async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM users ORDER BY user_id");
-        res.json(result.rows);
+        res.json({ success: true, users: result.rows });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Get all devices
+// ==========================
+// 📌 Get All Devices
+// ==========================
 router.get("/devices", async (req, res) => {
     try {
         const result = await pool.query("SELECT * FROM smart_device ORDER BY device_id");
-        res.json(result.rows);
+        res.json({ success: true, devices: result.rows });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-module.exports = router;
+// ==========================
+// 🚀 Export Default (required for ESM)
+// ==========================
+export default router;
