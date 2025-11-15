@@ -95,56 +95,29 @@ router.put("/users/:id", async (req, res) => {
 });
 
 /* =====================================================
-   🔥 BATCH UPDATE USERS (Save All)
+   ✏️ UPDATE SINGLE DEVICE
 ===================================================== */
-router.put("/users/update-batch", async (req, res) => {
-    const { updates } = req.body;
-
-    if (!updates || Object.keys(updates).length === 0) {
-        return res.status(400).json({ success: false, message: "No updates provided." });
-    }
+router.put("/devices/:id", async (req, res) => {
+    const { id } = req.params;
+    const { device_name, device_type, installation_date, user_id } = req.body;
 
     try {
-        const queries = [];
+        const result = await pool.query(
+            `UPDATE smart_device SET
+                device_name = COALESCE($1, device_name),
+                device_type = COALESCE($2, device_type),
+                installation_date = COALESCE($3, installation_date),
+                user_id = COALESCE($4, user_id)
+             WHERE device_id = $5
+             RETURNING *`,
+            [device_name, device_type, installation_date, user_id, id]
+        );
 
-        for (const userId in updates) {
-            const fields = updates[userId];
-
-            const {
-                username,
-                email,
-                first_name,
-                last_name,
-                middle_initial,
-                mobile_number
-            } = fields;
-
-            const query = pool.query(
-                `UPDATE users SET
-                    username = COALESCE($1, username),
-                    email = COALESCE($2, email),
-                    first_name = COALESCE($3, first_name),
-                    last_name = COALESCE($4, last_name),
-                    middle_initial = COALESCE($5, middle_initial),
-                    mobile_number = COALESCE($6, mobile_number)
-                 WHERE user_id = $7`,
-                [
-                    username,
-                    email,
-                    first_name,
-                    last_name,
-                    middle_initial,
-                    mobile_number,
-                    userId
-                ]
-            );
-
-            queries.push(query);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "Device not found" });
         }
 
-        await Promise.all(queries);
-
-        res.json({ success: true, message: "Batch update successful!" });
+        res.json({ success: true, device: result.rows[0] });
 
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -152,17 +125,12 @@ router.put("/users/update-batch", async (req, res) => {
 });
 
 /* =====================================================
-   ➕ ADD USER (WITH HASHED PASSWORD)
+   ➕ ADD USER (HASHED PASSWORD)
 ===================================================== */
 router.post("/users", async (req, res) => {
     const {
-        username,
-        password,
-        email,
-        first_name,
-        last_name,
-        middle_initial,
-        mobile_number
+        username, password, email, first_name,
+        last_name, middle_initial, mobile_number
     } = req.body;
 
     if (!username || !password || !email || !first_name || !last_name || !mobile_number) {
@@ -181,13 +149,8 @@ router.post("/users", async (req, res) => {
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING user_id, username, email, first_name, last_name, middle_initial, mobile_number`,
             [
-                username,
-                hashedPassword,
-                email,
-                first_name,
-                last_name,
-                middle_initial || null,
-                mobile_number
+                username, hashedPassword, email, first_name,
+                last_name, middle_initial || null, mobile_number
             ]
         );
 
@@ -216,6 +179,26 @@ router.delete("/users/:id", async (req, res) => {
         }
 
         res.json({ success: true, message: "User deleted successfully" });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/* =====================================================
+   ❌ DELETE DEVICE
+===================================================== */
+router.delete("/devices/:id", async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const result = await pool.query("DELETE FROM smart_device WHERE device_id = $1", [id]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "Device not found" });
+        }
+
+        res.json({ success: true, message: "Device deleted successfully" });
 
     } catch (err) {
         res.status(500).json({ error: err.message });
