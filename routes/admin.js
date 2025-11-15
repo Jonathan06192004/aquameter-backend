@@ -95,7 +95,7 @@ router.put("/users/:id", async (req, res) => {
 });
 
 /* =====================================================
-   🔥 BATCH UPDATE USERS (For Save All Button)
+   🔥 BATCH UPDATE USERS (Save All)
 ===================================================== */
 router.put("/users/update-batch", async (req, res) => {
     const { updates } = req.body;
@@ -116,7 +116,7 @@ router.put("/users/update-batch", async (req, res) => {
                 first_name,
                 last_name,
                 middle_initial,
-                mobile_number,
+                mobile_number
             } = fields;
 
             const query = pool.query(
@@ -142,7 +142,6 @@ router.put("/users/update-batch", async (req, res) => {
             queries.push(query);
         }
 
-        // Execute all queries in parallel
         await Promise.all(queries);
 
         res.json({ success: true, message: "Batch update successful!" });
@@ -153,7 +152,7 @@ router.put("/users/update-batch", async (req, res) => {
 });
 
 /* =====================================================
-   ➕ ADD USER (HASHED PASSWORD)
+   ➕ ADD USER (WITH HASHED PASSWORD)
 ===================================================== */
 router.post("/users", async (req, res) => {
     const {
