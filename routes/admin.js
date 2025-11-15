@@ -95,16 +95,18 @@ router.put("/users/:id", async (req, res) => {
 });
 
 /* =====================================================
-   🔥 BATCH UPDATE USERS
+   🔥 BATCH UPDATE USERS (For Save All Button)
 ===================================================== */
 router.put("/users/update-batch", async (req, res) => {
     const { updates } = req.body;
 
-    if (!updates) {
+    if (!updates || Object.keys(updates).length === 0) {
         return res.status(400).json({ success: false, message: "No updates provided." });
     }
 
     try {
+        const queries = [];
+
         for (const userId in updates) {
             const fields = updates[userId];
 
@@ -117,7 +119,7 @@ router.put("/users/update-batch", async (req, res) => {
                 mobile_number,
             } = fields;
 
-            await pool.query(
+            const query = pool.query(
                 `UPDATE users SET
                     username = COALESCE($1, username),
                     email = COALESCE($2, email),
@@ -136,7 +138,12 @@ router.put("/users/update-batch", async (req, res) => {
                     userId
                 ]
             );
+
+            queries.push(query);
         }
+
+        // Execute all queries in parallel
+        await Promise.all(queries);
 
         res.json({ success: true, message: "Batch update successful!" });
 
@@ -167,7 +174,6 @@ router.post("/users", async (req, res) => {
     }
 
     try {
-        // Hash password
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
         const result = await pool.query(
@@ -193,7 +199,6 @@ router.post("/users", async (req, res) => {
         });
 
     } catch (err) {
-        console.error(err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
