@@ -9,7 +9,6 @@ const saltRounds = 10;
    📌 TOTAL COUNTS
 ===================================================== */
 
-// Total users
 router.get("/users/count", async (req, res) => {
     try {
         const result = await pool.query("SELECT COUNT(*) FROM users");
@@ -19,7 +18,6 @@ router.get("/users/count", async (req, res) => {
     }
 });
 
-// Total devices
 router.get("/devices/count", async (req, res) => {
     try {
         const result = await pool.query("SELECT COUNT(*) FROM smart_device");
@@ -53,9 +51,7 @@ router.get("/users", async (req, res) => {
 ===================================================== */
 router.get("/devices", async (req, res) => {
     try {
-        const result = await pool.query(
-            "SELECT * FROM smart_device ORDER BY device_id"
-        );
+        const result = await pool.query("SELECT * FROM smart_device ORDER BY device_id");
         res.json({ success: true, devices: result.rows });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -63,7 +59,7 @@ router.get("/devices", async (req, res) => {
 });
 
 /* =====================================================
-   ✏️ UPDATE SINGLE USER
+   ✏️ UPDATE USER
 ===================================================== */
 router.put("/users/:id", async (req, res) => {
     const { id } = req.params;
@@ -95,22 +91,22 @@ router.put("/users/:id", async (req, res) => {
 });
 
 /* =====================================================
-   ✏️ UPDATE SINGLE DEVICE
+   ✏️ UPDATE DEVICE (FIXED — matches dashboard.js)
 ===================================================== */
 router.put("/devices/:id", async (req, res) => {
     const { id } = req.params;
-    const { device_name, device_type, installation_date, user_id } = req.body;
+    const { user_id, device_serial, location, device_status } = req.body;
 
     try {
         const result = await pool.query(
             `UPDATE smart_device SET
-                device_name = COALESCE($1, device_name),
-                device_type = COALESCE($2, device_type),
-                installation_date = COALESCE($3, installation_date),
-                user_id = COALESCE($4, user_id)
+                user_id = COALESCE($1, user_id),
+                device_serial = COALESCE($2, device_serial),
+                location = COALESCE($3, location),
+                device_status = COALESCE($4, device_status)
              WHERE device_id = $5
              RETURNING *`,
-            [device_name, device_type, installation_date, user_id, id]
+            [user_id, device_serial, location, device_status, id]
         );
 
         if (result.rowCount === 0) {
@@ -125,7 +121,7 @@ router.put("/devices/:id", async (req, res) => {
 });
 
 /* =====================================================
-   ➕ ADD USER (HASHED PASSWORD)
+   ➕ ADD USER
 ===================================================== */
 router.post("/users", async (req, res) => {
     const {
@@ -148,10 +144,7 @@ router.post("/users", async (req, res) => {
             (username, password, email, first_name, last_name, middle_initial, mobile_number)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING user_id, username, email, first_name, last_name, middle_initial, mobile_number`,
-            [
-                username, hashedPassword, email, first_name,
-                last_name, middle_initial || null, mobile_number
-            ]
+            [username, hashedPassword, email, first_name, last_name, middle_initial || null, mobile_number]
         );
 
         res.json({
@@ -205,7 +198,4 @@ router.delete("/devices/:id", async (req, res) => {
     }
 });
 
-/* =====================================================
-   🚀 EXPORT ROUTER
-===================================================== */
 export default router;
