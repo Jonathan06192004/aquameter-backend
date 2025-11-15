@@ -1,7 +1,9 @@
 import express from "express";
 import pool from "../index.js";
+import bcrypt from "bcrypt";
 
 const router = express.Router();
+const saltRounds = 10;
 
 /* =====================================================
    📌 TOTAL COUNTS
@@ -33,8 +35,13 @@ router.get("/devices/count", async (req, res) => {
 router.get("/users", async (req, res) => {
     try {
         const result = await pool.query(
-            "SELECT user_id, username, email, first_name, last_name FROM users ORDER BY user_id"
+            `SELECT 
+                user_id, username, email, first_name, last_name, 
+                middle_initial, mobile_number
+             FROM users
+             ORDER BY user_id`
         );
+
         res.json({ success: true, users: result.rows });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -46,7 +53,9 @@ router.get("/users", async (req, res) => {
 ===================================================== */
 router.get("/devices", async (req, res) => {
     try {
-        const result = await pool.query("SELECT * FROM smart_device ORDER BY device_id");
+        const result = await pool.query(
+            "SELECT * FROM smart_device ORDER BY device_id"
+        );
         res.json({ success: true, devices: result.rows });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -54,11 +63,11 @@ router.get("/devices", async (req, res) => {
 });
 
 /* =====================================================
-   ✏️ UPDATE A SINGLE USER
+   ✏️ UPDATE SINGLE USER
 ===================================================== */
 router.put("/users/:id", async (req, res) => {
     const { id } = req.params;
-    const { username, email, first_name, last_name } = req.body;
+    const { username, email, first_name, last_name, middle_initial, mobile_number } = req.body;
 
     try {
         const result = await pool.query(
@@ -66,10 +75,12 @@ router.put("/users/:id", async (req, res) => {
                 username = $1,
                 email = $2,
                 first_name = $3,
-                last_name = $4
-             WHERE user_id = $5
+                last_name = $4,
+                middle_initial = $5,
+                mobile_number = $6
+             WHERE user_id = $7
              RETURNING *`,
-            [username, email, first_name, last_name, id]
+            [username, email, first_name, last_name, middle_initial, mobile_number, id]
         );
 
         if (result.rowCount === 0) {
@@ -84,13 +95,12 @@ router.put("/users/:id", async (req, res) => {
 });
 
 /* =====================================================
-   🔥 NEW: BATCH UPDATE USERS
-   PUT /admin/users/update-batch
+   🔥 BATCH UPDATE USERS
 ===================================================== */
 router.put("/users/update-batch", async (req, res) => {
     const { updates } = req.body;
 
-    if (!updates || typeof updates !== "object") {
+    if (!updates) {
         return res.status(400).json({ success: false, message: "No updates provided." });
     }
 
@@ -98,16 +108,33 @@ router.put("/users/update-batch", async (req, res) => {
         for (const userId in updates) {
             const fields = updates[userId];
 
-            const { username, email, first_name, last_name } = fields;
+            const {
+                username,
+                email,
+                first_name,
+                last_name,
+                middle_initial,
+                mobile_number,
+            } = fields;
 
             await pool.query(
                 `UPDATE users SET
                     username = COALESCE($1, username),
                     email = COALESCE($2, email),
                     first_name = COALESCE($3, first_name),
-                    last_name = COALESCE($4, last_name)
-                 WHERE user_id = $5`,
-                [username, email, first_name, last_name, userId]
+                    last_name = COALESCE($4, last_name),
+                    middle_initial = COALESCE($5, middle_initial),
+                    mobile_number = COALESCE($6, mobile_number)
+                 WHERE user_id = $7`,
+                [
+                    username,
+                    email,
+                    first_name,
+                    last_name,
+                    middle_initial,
+                    mobile_number,
+                    userId
+                ]
             );
         }
 
@@ -119,35 +146,55 @@ router.put("/users/update-batch", async (req, res) => {
 });
 
 /* =====================================================
-   🔥 NEW: ADD USER
-   POST /admin/users/add
+   ➕ ADD USER (HASHED PASSWORD)
 ===================================================== */
-router.post("/users/add", async (req, res) => {
-    const { username, email, first_name, last_name } = req.body;
+router.post("/users", async (req, res) => {
+    const {
+        username,
+        password,
+        email,
+        first_name,
+        last_name,
+        middle_initial,
+        mobile_number
+    } = req.body;
 
-    if (!username || !email || !first_name || !last_name) {
+    if (!username || !password || !email || !first_name || !last_name || !mobile_number) {
         return res.status(400).json({
             success: false,
-            message: "All fields are required."
+            message: "Please fill in all required fields."
         });
     }
 
     try {
+        // Hash password
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
         const result = await pool.query(
-            `INSERT INTO users (username, email, first_name, last_name, password)
-             VALUES ($1, $2, $3, $4, 'defaultpass')
-             RETURNING user_id`,
-            [username, email, first_name, last_name]
+            `INSERT INTO users 
+            (username, password, email, first_name, last_name, middle_initial, mobile_number)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING user_id, username, email, first_name, last_name, middle_initial, mobile_number`,
+            [
+                username,
+                hashedPassword,
+                email,
+                first_name,
+                last_name,
+                middle_initial || null,
+                mobile_number
+            ]
         );
 
         res.json({
             success: true,
             message: "User added successfully",
-            user_id: result.rows[0].user_id
+            user: result.rows[0]
         });
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error(err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
