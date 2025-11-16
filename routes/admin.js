@@ -91,7 +91,7 @@ router.put("/users/:id", async (req, res) => {
 });
 
 /* =====================================================
-   ✏️ UPDATE DEVICE (FIXED — matches dashboard.js)
+   ✏️ UPDATE DEVICE
 ===================================================== */
 router.put("/devices/:id", async (req, res) => {
     const { id } = req.params;
@@ -195,6 +195,39 @@ router.delete("/devices/:id", async (req, res) => {
 
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+/* =====================================================
+   ⭐ ADD DEVICE (THE MISSING ROUTE)
+===================================================== */
+router.post("/devices", async (req, res) => {
+    const { user_id, device_serial, location } = req.body;
+
+    if (!device_serial || !location) {
+        return res.status(400).json({
+            success: false,
+            message: "Device Serial and Location are required."
+        });
+    }
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO smart_device 
+                (user_id, device_serial, location, installed_at, device_status)
+             VALUES ($1, $2, $3, NOW(), 'Active')
+             RETURNING *`,
+            [user_id || null, device_serial, location]
+        );
+
+        res.json({
+            success: true,
+            message: "Device added successfully",
+            device: result.rows[0]
+        });
+
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
