@@ -15,7 +15,7 @@ const app = express();
 
 // ==========================
 // 🛠 Middleware
-// ===========================
+// ==========================
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -38,7 +38,8 @@ app.use("/uploads", express.static(uploadDir, { fallthrough: true }));
 // ==========================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+  filename: (req, file, cb) =>
+    cb(null, Date.now() + path.extname(file.originalname)),
 });
 
 const upload = multer({ storage });
@@ -64,7 +65,7 @@ pool
     console.error("❌ Database connection error:", err.message)
   );
 
-// ⬆ MUST EXPORT POOL **AFTER** pool is created
+// MUST EXPORT POOL AFTER CREATION
 export default pool;
 
 // ==========================
@@ -75,21 +76,17 @@ app.get("/", (req, res) => {
 });
 
 // ==========================
-// 🔐 Authentication Routes (Mobile)
+// 🔐 Authentication Routes
 // ==========================
 app.use("/api/auth", authRoutes);
 
 // ==========================
-// 🧑‍💼 ADMIN ROUTES (Dashboard)
+// 🧑‍💼 Admin Dashboard Routes
 // ==========================
-// Examples:
-// GET /admin/users
-// GET /admin/devices
-// GET /admin/users/count
 app.use("/admin", adminRoutes);
 
 // ==========================
-// 🏠 USER HOME (Protected)
+// 🏠 USER HOME
 // ==========================
 app.get("/home/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
@@ -119,7 +116,6 @@ app.get("/home/:id", authenticateToken, async (req, res) => {
     }
 
     res.json({ success: true, user });
-
   } catch (error) {
     console.error("❌ Error fetching user for /home:", error.message);
     res.status(500).json({ success: false, message: "Server error" });
@@ -154,7 +150,6 @@ app.post("/api/save-push-token", authenticateToken, async (req, res) => {
     }
 
     res.json({ success: true, message: "Push token saved successfully" });
-
   } catch (err) {
     console.error("❌ Save token error:", err.message);
     res.status(500).json({ success: false, error: "Failed to save token" });
@@ -170,7 +165,7 @@ app.get("/profile/:user_id", authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT user_id, username, email, first_name, last_name,
-              middle_initial, mobile_number, profile_image
+              middle_initial, mobile_number, profile_image, is_hidden
        FROM users WHERE user_id = $1`,
       [user_id]
     );
@@ -189,13 +184,13 @@ app.get("/profile/:user_id", authenticateToken, async (req, res) => {
     }
 
     res.json({ success: true, user });
-
   } catch (err) {
     console.error("❌ Profile fetch error:", err.message);
     res.status(500).json({ success: false, error: "Server error" });
   }
 });
 
+// Upload profile image
 app.post(
   "/profile/:user_id/upload",
   authenticateToken,
@@ -214,7 +209,6 @@ app.post(
         [filePath, user_id]
       );
       res.json({ success: true, profile_image: filePath });
-
     } catch (err) {
       console.error("❌ Profile upload error:", err.message);
       res.status(500).json({ success: false, error: "Failed to save profile image" });
@@ -222,18 +216,12 @@ app.post(
   }
 );
 
-// ==========================
-// 🔧 PROFILE UPDATE ROUTE (FULL UPDATE - REQUIRED FIELDS)
-// ==========================
-// Method: PUT
-// Endpoint: /profile/:user_id/update
-// Requires body: { first_name, last_name, middle_initial, mobile_number, username }
-// Returns updated user row (with profile_image converted to full URL if exists)
+// Full profile update
 app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
-  const { first_name, last_name, middle_initial, mobile_number, username } = req.body;
+  const { first_name, last_name, middle_initial, mobile_number, username } =
+    req.body;
 
-  // Full update required (Option 2)
   if (
     typeof first_name === "undefined" ||
     typeof last_name === "undefined" ||
@@ -249,7 +237,6 @@ app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
   }
 
   try {
-    // Check username uniqueness (must not belong to other users)
     const existing = await pool.query(
       "SELECT user_id FROM users WHERE username = $1 AND user_id != $2",
       [username, user_id]
@@ -288,7 +275,6 @@ app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
 
     const user = result.rows[0];
 
-    // Convert profile_image to absolute URL if present
     if (user.profile_image?.trim()) {
       if (!user.profile_image.startsWith("http")) {
         const BASE_URL =
@@ -301,12 +287,48 @@ app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
     }
 
     res.json({ success: true, user });
-
   } catch (err) {
     console.error("❌ Profile update error:", err.message);
     res.status(500).json({ success: false, error: "Failed to update profile" });
   }
 });
+
+
+// ==========================
+// 👁 HIDE USER INFORMATION (NEW ROUTE)
+// ==========================
+app.put("/api/users/:user_id/hide", authenticateToken, async (req, res) => {
+  const { user_id } = req.params;
+  const { is_hidden } = req.body;
+
+  try {
+    const result = await pool.query(
+      "UPDATE users SET is_hidden = $1 WHERE user_id = $2 RETURNING user_id, is_hidden",
+      [is_hidden, user_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "User information hidden successfully",
+      user: result.rows[0],
+    });
+
+  } catch (err) {
+    console.error("❌ Hide user error:", err.message);
+    res.status(500).json({
+      success: false,
+      message: "Server error while hiding user",
+    });
+  }
+});
+
 
 // ==========================
 // 💧 WATER BILL ROUTES
@@ -327,7 +349,6 @@ app.get("/estimated-water-bill/:user_id", authenticateToken, async (req, res) =>
     const result = await pool.query(q, [user_id]);
 
     res.json({ success: true, data: result.rows });
-
   } catch (err) {
     console.error("❌ Estimated bill fetch error:", err.message);
     res.status(500).json({ success: false, error: "Server error" });
@@ -346,7 +367,6 @@ app.get("/water-readings/:user_id", authenticateToken, async (req, res) => {
     const result = await pool.query(q, [user_id]);
 
     res.json({ success: true, data: result.rows });
-
   } catch (err) {
     console.error("❌ Water readings fetch error:", err.message);
     res.status(500).json({ success: false, error: "Server error" });
@@ -354,7 +374,7 @@ app.get("/water-readings/:user_id", authenticateToken, async (req, res) => {
 });
 
 // ==========================
-// ⚙️ SMART DEVICE ROUTES
+// ⚙ SMART DEVICE ROUTES
 // ==========================
 app.get("/smart-device/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
@@ -365,7 +385,6 @@ app.get("/smart-device/:user_id", authenticateToken, async (req, res) => {
       [user_id]
     );
     res.json({ success: true, devices: result.rows });
-
   } catch (err) {
     console.error("❌ Smart device fetch error:", err.message);
     res.status(500).json({ success: false, error: "Server error" });
@@ -390,9 +409,8 @@ app.post("/smart-device/register", authenticateToken, async (req, res) => {
     res.json({
       success: true,
       message: "Smart device registered successfully",
-      device_id: result.rows[0].device_id
+      device_id: result.rows[0].device_id,
     });
-
   } catch (err) {
     console.error("❌ Smart device register error:", err.message);
     res.status(500).json({ success: false, error: "Failed to register device" });
@@ -415,7 +433,6 @@ app.get("/notifications/:user_id", authenticateToken, async (req, res) => {
     const result = await pool.query(q, [user_id]);
 
     res.json({ success: true, notifications: result.rows });
-
   } catch (err) {
     console.error("❌ Notifications fetch error:", err.message);
     res.status(500).json({ success: false, error: "Server error" });
@@ -436,7 +453,6 @@ app.post("/notifications", authenticateToken, async (req, res) => {
     );
 
     res.json({ success: true, message: "Notification sent successfully" });
-
   } catch (err) {
     console.error("❌ Notification error:", err.message);
     res.status(500).json({ success: false, error: "Failed to create notification" });

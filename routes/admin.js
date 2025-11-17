@@ -8,10 +8,9 @@ const saltRounds = 10;
 /* =====================================================
    📌 TOTAL COUNTS
 ===================================================== */
-
 router.get("/users/count", async (req, res) => {
     try {
-        const result = await pool.query("SELECT COUNT(*) FROM users");
+        const result = await pool.query("SELECT COUNT(*) FROM users WHERE is_hidden = FALSE");
         res.json({ total_users: result.rows[0].count });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -28,15 +27,16 @@ router.get("/devices/count", async (req, res) => {
 });
 
 /* =====================================================
-   📌 USERS LIST
+   📌 USERS LIST (FILTER HIDDEN USERS)
 ===================================================== */
 router.get("/users", async (req, res) => {
     try {
         const result = await pool.query(
             `SELECT 
                 user_id, username, email, first_name, last_name, 
-                middle_initial, mobile_number
+                middle_initial, mobile_number, is_hidden
              FROM users
+             WHERE is_hidden = FALSE
              ORDER BY user_id`
         );
 
@@ -199,7 +199,7 @@ router.delete("/devices/:id", async (req, res) => {
 });
 
 /* =====================================================
-   ⭐ ADD DEVICE (THE MISSING ROUTE)
+   ⭐ ADD DEVICE
 ===================================================== */
 router.post("/devices", async (req, res) => {
     const { user_id, device_serial, location } = req.body;
@@ -228,6 +228,46 @@ router.post("/devices", async (req, res) => {
 
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+/* =====================================================
+   🔒 HIDE USER FROM ADMIN VIEW
+===================================================== */
+router.put("/users/:id/hide", async (req, res) => {
+    try {
+        const result = await pool.query(
+            `UPDATE users SET is_hidden = TRUE WHERE user_id = $1 RETURNING *`,
+            [req.params.id]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        res.json({ success: true, message: "User is now hidden", user: result.rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/* =====================================================
+   🔓 UNHIDE USER
+===================================================== */
+router.put("/users/:id/unhide", async (req, res) => {
+    try {
+        const result = await pool.query(
+            `UPDATE users SET is_hidden = FALSE WHERE user_id = $1 RETURNING *`,
+            [req.params.id]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        res.json({ success: true, message: "User is now visible", user: result.rows[0] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
