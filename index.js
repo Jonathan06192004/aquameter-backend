@@ -15,7 +15,7 @@ const app = express();
 
 // ==========================
 // 🛠 Middleware
-// ==========================
+// ===========================
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -31,10 +31,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // Serve uploaded images
-app.use(
-  "/uploads",
-  express.static(uploadDir, { fallthrough: true })
-);
+app.use("/uploads", express.static(uploadDir, { fallthrough: true }));
 
 // ==========================
 // 📷 Multer Storage
@@ -224,6 +221,92 @@ app.post(
     }
   }
 );
+
+// ==========================
+// 🔧 PROFILE UPDATE ROUTE (FULL UPDATE - REQUIRED FIELDS)
+// ==========================
+// Method: PUT
+// Endpoint: /profile/:user_id/update
+// Requires body: { first_name, last_name, middle_initial, mobile_number, username }
+// Returns updated user row (with profile_image converted to full URL if exists)
+app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
+  const { user_id } = req.params;
+  const { first_name, last_name, middle_initial, mobile_number, username } = req.body;
+
+  // Full update required (Option 2)
+  if (
+    typeof first_name === "undefined" ||
+    typeof last_name === "undefined" ||
+    typeof middle_initial === "undefined" ||
+    typeof mobile_number === "undefined" ||
+    typeof username === "undefined"
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Missing required fields. Required: first_name, last_name, middle_initial, mobile_number, username",
+    });
+  }
+
+  try {
+    // Check username uniqueness (must not belong to other users)
+    const existing = await pool.query(
+      "SELECT user_id FROM users WHERE username = $1 AND user_id != $2",
+      [username, user_id]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Username is already taken by another user",
+      });
+    }
+
+    const q = `
+      UPDATE users
+      SET first_name = $1,
+          last_name = $2,
+          middle_initial = $3,
+          mobile_number = $4,
+          username = $5
+      WHERE user_id = $6
+      RETURNING user_id, username, email, first_name, last_name, middle_initial, mobile_number, profile_image
+    `;
+
+    const result = await pool.query(q, [
+      first_name,
+      last_name,
+      middle_initial,
+      mobile_number,
+      username,
+      user_id,
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const user = result.rows[0];
+
+    // Convert profile_image to absolute URL if present
+    if (user.profile_image?.trim()) {
+      if (!user.profile_image.startsWith("http")) {
+        const BASE_URL =
+          process.env.RENDER_EXTERNAL_URL ||
+          `${req.protocol}://${req.get("host")}`;
+        user.profile_image = `${BASE_URL}${user.profile_image.startsWith("/") ? "" : "/"}${user.profile_image}`;
+      }
+    } else {
+      delete user.profile_image;
+    }
+
+    res.json({ success: true, user });
+
+  } catch (err) {
+    console.error("❌ Profile update error:", err.message);
+    res.status(500).json({ success: false, error: "Failed to update profile" });
+  }
+});
 
 // ==========================
 // 💧 WATER BILL ROUTES
