@@ -6,11 +6,36 @@ const router = express.Router();
 const saltRounds = 10;
 
 /* =====================================================
-   📌 TOTAL COUNTS
+   Helpers: masking
+===================================================== */
+function maskEmail(email) {
+    if (!email || !email.includes("@")) return "Hidden by user";
+    const [local, domain] = email.split("@");
+    const first = local ? local[0] : "";
+    return `${first}*******@${domain}`;
+}
+
+function maskRow(user) {
+    // returns a shallow copy with masked fields if user.is_hidden === true
+    if (!user.is_hidden) return user;
+
+    return {
+        ...user,
+        username: "Hidden by user",
+        email: maskEmail(user.email),
+        first_name: "Hidden by user",
+        last_name: "Hidden by user",
+        mobile_number: "Hidden by user",
+        // keep other fields like user_id, middle_initial as-is
+    };
+}
+
+/* =====================================================
+   📌 TOTAL COUNTS (INCLUDES HIDDEN USERS)
 ===================================================== */
 router.get("/users/count", async (req, res) => {
     try {
-        const result = await pool.query("SELECT COUNT(*) FROM users WHERE is_hidden = FALSE");
+        const result = await pool.query("SELECT COUNT(*) FROM users");
         res.json({ total_users: result.rows[0].count });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -27,7 +52,7 @@ router.get("/devices/count", async (req, res) => {
 });
 
 /* =====================================================
-   📌 USERS LIST (FILTER HIDDEN USERS)
+   📌 USERS LIST (RETURN ALL, MASK SENSITIVE FIELDS WHEN is_hidden = TRUE)
 ===================================================== */
 router.get("/users", async (req, res) => {
     try {
@@ -36,11 +61,11 @@ router.get("/users", async (req, res) => {
                 user_id, username, email, first_name, last_name, 
                 middle_initial, mobile_number, is_hidden
              FROM users
-             WHERE is_hidden = FALSE
              ORDER BY user_id`
         );
 
-        res.json({ success: true, users: result.rows });
+        const masked = result.rows.map(r => maskRow(r));
+        res.json({ success: true, users: masked });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -60,6 +85,7 @@ router.get("/devices", async (req, res) => {
 
 /* =====================================================
    ✏️ UPDATE USER
+   (keeps existing behavior — admin can update fields)
 ===================================================== */
 router.put("/users/:id", async (req, res) => {
     const { id } = req.params;
@@ -75,7 +101,7 @@ router.put("/users/:id", async (req, res) => {
                 middle_initial = $5,
                 mobile_number = $6
              WHERE user_id = $7
-             RETURNING *`,
+             RETURNING user_id, username, email, first_name, last_name, middle_initial, mobile_number, is_hidden`,
             [username, email, first_name, last_name, middle_initial, mobile_number, id]
         );
 
@@ -83,7 +109,10 @@ router.put("/users/:id", async (req, res) => {
             return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        res.json({ success: true, user: result.rows[0] });
+        // Mask if updated user is_hidden
+        const user = maskRow(result.rows[0]);
+
+        res.json({ success: true, user });
 
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -232,27 +261,32 @@ router.post("/devices", async (req, res) => {
 });
 
 /* =====================================================
-   🔒 HIDE USER FROM ADMIN VIEW
+   🔄 TOGGLE HIDE FLAG (accepts { is_hidden: true|false } in body)
+   Route kept as /users/:id/hide (no route name change)
 ===================================================== */
 router.put("/users/:id/hide", async (req, res) => {
+    const { id } = req.params;
+    // allow client to pass { is_hidden: true|false }, default true
+    const is_hidden = typeof req.body.is_hidden !== "undefined" ? req.body.is_hidden : true;
+
     try {
         const result = await pool.query(
-            `UPDATE users SET is_hidden = TRUE WHERE user_id = $1 RETURNING *`,
-            [req.params.id]
+            `UPDATE users SET is_hidden = $1 WHERE user_id = $2 RETURNING user_id, is_hidden`,
+            [is_hidden, id]
         );
 
         if (result.rowCount === 0) {
             return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        res.json({ success: true, message: "User is now hidden", user: result.rows[0] });
+        res.json({ success: true, message: "User privacy flag updated", user: result.rows[0] });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
 /* =====================================================
-   🔓 UNHIDE USER
+   🔓 UNHIDE USER (kept for convenience — still available)
 ===================================================== */
 router.put("/users/:id/unhide", async (req, res) => {
     try {
@@ -265,7 +299,10 @@ router.put("/users/:id/unhide", async (req, res) => {
             return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        res.json({ success: true, message: "User is now visible", user: result.rows[0] });
+        // Mask in response if somehow still hidden (should not be)
+        const user = maskRow(result.rows[0]);
+
+        res.json({ success: true, message: "User is now visible", user });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

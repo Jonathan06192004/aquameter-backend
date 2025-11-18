@@ -13,16 +13,39 @@ import adminRoutes from "./routes/admin.js";
 
 const app = express();
 
-// ==========================
-// 🛠 Middleware
-// ==========================
+/* ==========================
+ 🔒 Centralized Masking Helpers
+========================== */
+export function maskEmail(email) {
+  if (!email || !email.includes("@")) return "Hidden by user";
+  const [local, domain] = email.split("@");
+  const first = local ? local[0] : "";
+  return `${first}*******@${domain}`;
+}
+
+export function maskUserRow(user) {
+  if (!user.is_hidden) return user;
+
+  return {
+    ...user,
+    username: "Hidden by user",
+    email: maskEmail(user.email),
+    first_name: "Hidden by user",
+    last_name: "Hidden by user",
+    mobile_number: "Hidden by user",
+  };
+}
+
+/* ==========================
+ 🛠 Middleware
+========================== */
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ==========================
-// 📂 File Upload Directory
-// ==========================
+/* ==========================
+ 📂 File Upload Directory
+========================== */
 const __dirname = path.resolve();
 const uploadDir = path.join(__dirname, "uploads");
 
@@ -30,12 +53,11 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir);
 }
 
-// Serve uploaded images
 app.use("/uploads", express.static(uploadDir, { fallthrough: true }));
 
-// ==========================
-// 📷 Multer Storage
-// ==========================
+/* ==========================
+ 📷 Multer Storage
+========================== */
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) =>
@@ -44,9 +66,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// ==========================
-// 🐘 PostgreSQL Connection
-// ==========================
+/* ==========================
+ 🐘 PostgreSQL Connection
+========================== */
 const isRender =
   process.env.RENDER === "true" ||
   process.env.DATABASE_URL?.includes("render.com");
@@ -65,29 +87,28 @@ pool
     console.error("❌ Database connection error:", err.message)
   );
 
-// MUST EXPORT POOL AFTER CREATION
 export default pool;
 
-// ==========================
-// 🏁 Root Route
-// ==========================
+/* ==========================
+ 🏁 Root Route
+========================== */
 app.get("/", (req, res) => {
   res.json({ success: true, message: "🌊 AquaMeter Backend is Running!" });
 });
 
-// ==========================
-// 🔐 Authentication Routes
-// ==========================
+/* ==========================
+ 🔐 Authentication Routes
+========================== */
 app.use("/api/auth", authRoutes);
 
-// ==========================
-// 🧑‍💼 Admin Dashboard Routes
-// ==========================
+/* ==========================
+ 🧑‍💼 Admin Dashboard Routes
+========================== */
 app.use("/admin", adminRoutes);
 
-// ==========================
-// 🏠 USER HOME
-// ==========================
+/* ==========================
+ 🏠 USER HOME
+========================== */
 app.get("/home/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
 
@@ -103,6 +124,7 @@ app.get("/home/:id", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
 
     const user = result.rows[0];
+
     const BASE_URL =
       process.env.RENDER_EXTERNAL_URL ||
       "https://aquameter-backend-8u1x.onrender.com";
@@ -122,9 +144,9 @@ app.get("/home/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================
-// 🔔 PUSH TOKEN SAVE
-// ==========================
+/* ==========================
+ 🔔 PUSH TOKEN SAVE
+========================== */
 app.post("/api/save-push-token", authenticateToken, async (req, res) => {
   const { user_id, expo_token, fcm_token } = req.body;
 
@@ -156,9 +178,9 @@ app.post("/api/save-push-token", authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================
-// 👤 PROFILE ROUTES
-// ==========================
+/* ==========================
+ 👤 PROFILE ROUTES
+========================== */
 app.get("/profile/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
 
@@ -190,7 +212,7 @@ app.get("/profile/:user_id", authenticateToken, async (req, res) => {
   }
 });
 
-// Upload profile image
+// upload
 app.post(
   "/profile/:user_id/upload",
   authenticateToken,
@@ -216,7 +238,7 @@ app.post(
   }
 );
 
-// Full profile update
+// full update
 app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
   const { first_name, last_name, middle_initial, mobile_number, username } =
@@ -232,7 +254,7 @@ app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
     return res.status(400).json({
       success: false,
       message:
-        "Missing required fields. Required: first_name, last_name, middle_initial, mobile_number, username",
+        "Missing required fields.",
     });
   }
 
@@ -245,7 +267,7 @@ app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
     if (existing.rows.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "Username is already taken by another user",
+        message: "Username already taken",
       });
     }
 
@@ -269,9 +291,8 @@ app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
       user_id,
     ]);
 
-    if (result.rows.length === 0) {
+    if (result.rows.length === 0)
       return res.status(404).json({ success: false, message: "User not found" });
-    }
 
     const user = result.rows[0];
 
@@ -293,10 +314,9 @@ app.put("/profile/:user_id/update", authenticateToken, async (req, res) => {
   }
 });
 
-
-// ==========================
-// 👁 HIDE USER INFORMATION (NEW ROUTE)
-// ==========================
+/* ==========================
+ 👁 HIDE USER INFORMATION
+========================== */
 app.put("/api/users/:user_id/hide", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
   const { is_hidden } = req.body;
@@ -316,23 +336,21 @@ app.put("/api/users/:user_id/hide", authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
-      message: "User information hidden successfully",
+      message: "User information hidden",
       user: result.rows[0],
     });
-
   } catch (err) {
     console.error("❌ Hide user error:", err.message);
     res.status(500).json({
       success: false,
-      message: "Server error while hiding user",
+      message: "Error hiding user",
     });
   }
 });
 
-
-// ==========================
-// 💧 WATER BILL ROUTES
-// ==========================
+/* ==========================
+ 💧 WATER BILL ROUTES
+========================== */
 app.get("/estimated-water-bill/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
 
@@ -373,9 +391,9 @@ app.get("/water-readings/:user_id", authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================
-// ⚙ SMART DEVICE ROUTES
-// ==========================
+/* ==========================
+ ⚙ SMART DEVICE ROUTES
+========================== */
 app.get("/smart-device/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
 
@@ -417,9 +435,9 @@ app.post("/smart-device/register", authenticateToken, async (req, res) => {
   }
 });
 
-// ==========================
-// 🔔 NOTIFICATIONS
-// ==========================
+/* ==========================
+ 🔔 NOTIFICATIONS
+========================== */
 app.get("/notifications/:user_id", authenticateToken, async (req, res) => {
   const { user_id } = req.params;
 
@@ -452,16 +470,16 @@ app.post("/notifications", authenticateToken, async (req, res) => {
       [user_id, message, type]
     );
 
-    res.json({ success: true, message: "Notification sent successfully" });
+    res.json({ success: true, message: "Notification sent" });
   } catch (err) {
     console.error("❌ Notification error:", err.message);
     res.status(500).json({ success: false, error: "Failed to create notification" });
   }
 });
 
-// ==========================
-// 🚫 404 Handler
-// ==========================
+/* ==========================
+ 🚫 404 Handler
+========================== */
 app.use((req, res) => {
   if (
     !req.originalUrl.startsWith("/uploads") &&
@@ -472,9 +490,9 @@ app.use((req, res) => {
   res.status(404).json({ success: false, error: "Route not found" });
 });
 
-// ==========================
-// 🚀 Server Start
-// ==========================
+/* ==========================
+ 🚀 Server Start
+========================== */
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, "0.0.0.0", () => {
