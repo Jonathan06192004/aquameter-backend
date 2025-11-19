@@ -7,7 +7,7 @@ import path from "path";
 import fs from "fs";
 
 // 🔌 Config
-import pool from "./config/db.js";
+import pool from "./config/db.js";      // MAKE SURE db.js exports: export default pool;
 import upload from "./config/multer.js";
 
 // 🧩 Routes
@@ -33,14 +33,21 @@ app.use(express.urlencoded({ extended: true }));
 ========================== */
 const __dirname = path.resolve();
 const uploadDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
 app.use("/uploads", express.static(uploadDir));
 
 /* ==========================
  🏁 Root Check Route
 ========================== */
 app.get("/", (req, res) => {
-  res.json({ success: true, message: "🌊 AquaMeter Backend is Running!" });
+    res.json({
+        success: true,
+        message: "🌊 AquaMeter Backend is Running!",
+    });
 });
 
 /* ==========================
@@ -49,7 +56,7 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/admin", adminRoutes);
 app.use("/home", homeRoutes);
-app.use("/profile", profileRoutes(upload));
+app.use("/profile", profileRoutes(upload));   // upload instance passed here
 app.use("/water", waterBillRoutes);
 app.use("/device", deviceRoutes);
 app.use("/notifications", notificationRoutes);
@@ -58,13 +65,19 @@ app.use("/notifications", notificationRoutes);
  🚫 404 Handler
 ========================== */
 app.use((req, res) => {
-  res.status(404).json({ success: false, error: "Route not found" });
+    res.status(404).json({
+        success: false,
+        error: "Route not found",
+    });
 });
 
 /* ==========================
  🚀 Start Server
 ========================== */
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, "0.0.0.0", () =>
-  console.log(`✅ Server running on port ${PORT}`)
-);
+
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`✅ Server running on port ${PORT}`);
+});
+
+export default app;  // <— Optional but clean, no conflict with pool
