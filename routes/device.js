@@ -21,7 +21,7 @@ router.get("/:user_id", authenticateToken, async (req, res) => {
   }
 });
 
-/* Register device */
+/* Register new device */
 router.post("/register", authenticateToken, async (req, res) => {
   const { user_id, device_serial, location } = req.body;
 
@@ -32,10 +32,19 @@ router.post("/register", authenticateToken, async (req, res) => {
     const q = `
       INSERT INTO smart_device (user_id, device_serial, location, installed_at, device_status)
       VALUES ($1, $2, $3, NOW(), 'Active')
-      RETURNING device_id
+      RETURNING device_id, device_status
     `;
 
     const result = await pool.query(q, [user_id, device_serial, location]);
+
+    // Emit WebSocket update
+    const io = req.app.get("socketio");
+    io.emit(`device-status-${user_id}`, {
+      device_id: result.rows[0].device_id,
+      status: result.rows[0].device_status,
+      serial: device_serial,
+      location,
+    });
 
     res.json({
       success: true,
@@ -44,6 +53,30 @@ router.post("/register", authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Register device error:", err.message);
+    res.status(500).json({ success: false });
+  }
+});
+
+/* Example: update device status endpoint (optional) */
+router.post("/update-status", authenticateToken, async (req, res) => {
+  const { device_id, user_id, new_status } = req.body;
+
+  try {
+    await pool.query(
+      "UPDATE smart_device SET device_status=$1 WHERE device_id=$2",
+      [new_status, device_id]
+    );
+
+    // Emit update
+    const io = req.app.get("socketio");
+    io.emit(`device-status-${user_id}`, {
+      device_id,
+      status: new_status,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Update device status error:", err.message);
     res.status(500).json({ success: false });
   }
 });
