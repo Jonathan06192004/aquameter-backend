@@ -1,19 +1,21 @@
 import express from "express";
 import pool from "../config/db.js";
 import { authenticateToken } from "../middleware/authMiddleware.js";
-import { encrypt, decrypt } from "../utils/encryption.js";
+import { encrypt, decrypt, isEncrypted } from "../utils/encryption.js";
 
 export default function profileRoutes(upload) {
   const router = express.Router();
 
-  /* Fetch profile */
+  /* ================
+     FETCH PROFILE
+  =================== */
   router.get("/:user_id", authenticateToken, async (req, res) => {
     const { user_id } = req.params;
 
     try {
       const result = await pool.query(
         `SELECT user_id, username, email, first_name, last_name,
-              middle_initial, mobile_number, profile_image, is_hidden
+                middle_initial, mobile_number, profile_image, is_hidden
          FROM users WHERE user_id = $1`,
         [user_id]
       );
@@ -23,8 +25,11 @@ export default function profileRoutes(upload) {
 
       const user = result.rows[0];
 
+      // Fix image URL
       if (user.profile_image?.trim() && !user.profile_image.startsWith("http")) {
-        user.profile_image = `${req.protocol}://${req.get("host")}${user.profile_image.startsWith("/") ? "" : "/"}${user.profile_image}`;
+        user.profile_image = `${req.protocol}://${req.get("host")}${
+          user.profile_image.startsWith("/") ? "" : "/"
+        }${user.profile_image}`;
       }
 
       res.json({ success: true, user });
@@ -34,7 +39,9 @@ export default function profileRoutes(upload) {
     }
   });
 
-  /* Upload profile image */
+  /* ================
+     UPLOAD PROFILE IMAGE
+  =================== */
   router.post(
     "/:user_id/upload",
     authenticateToken,
@@ -52,6 +59,7 @@ export default function profileRoutes(upload) {
           "UPDATE users SET profile_image = $1 WHERE user_id = $2",
           [filePath, user_id]
         );
+
         res.json({ success: true, profile_image: filePath });
       } catch (err) {
         console.error("❌ Upload error:", err.message);
@@ -60,12 +68,15 @@ export default function profileRoutes(upload) {
     }
   );
 
-  /* Update profile */
+  /* ================
+     UPDATE PROFILE
+  =================== */
   router.put("/:user_id/update", authenticateToken, async (req, res) => {
     const { user_id } = req.params;
     const { first_name, last_name, middle_initial, mobile_number, username } = req.body;
 
     try {
+      // Check duplicate username
       const existing = await pool.query(
         "SELECT user_id FROM users WHERE username = $1 AND user_id != $2",
         [username, user_id]
@@ -79,7 +90,8 @@ export default function profileRoutes(upload) {
         SET first_name=$1, last_name=$2, middle_initial=$3,
             mobile_number=$4, username=$5
         WHERE user_id=$6
-        RETURNING user_id, username, email, first_name, last_name, middle_initial, mobile_number, profile_image
+        RETURNING user_id, username, email, first_name, last_name,
+                  middle_initial, mobile_number, profile_image
       `;
 
       const result = await pool.query(q, [
@@ -99,77 +111,84 @@ export default function profileRoutes(upload) {
     }
   });
 
-  /* Hide user info — UPDATED WITH ENCRYPTION */
-  router.put("/:user_id/hide", authenticateToken, async (req, res) => {
-    const { user_id } = req.params;
-    const { is_hidden } = req.body;
+  /* ==================================================
+     HIDE / SHOW USER — SAFE ENCRYPT & SAFE DECRYPT
+  ===================================================== */
+/* ==================================================
+   UPDATE PRIVACY (HIDE / SHOW USER)
+   Mobile route: PUT /profile/:user_id/privacy
+ =================================================== */
+router.put("/:user_id/privacy", authenticateToken, async (req, res) => {
+  const { user_id } = req.params;
+  const { is_private } = req.body; // mobile sends this
+  const is_hidden = is_private === true; // map to DB field
 
-    try {
-      const found = await pool.query(
-        "SELECT * FROM users WHERE user_id=$1",
-        [user_id]
-      );
+  try {
+    const found = await pool.query(
+      "SELECT * FROM users WHERE user_id=$1",
+      [user_id]
+    );
 
-      if (found.rows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
+    if (found.rows.length === 0)
+      return res.status(404).json({ success: false, message: "User not found" });
 
-      const user = found.rows[0];
+    const user = found.rows[0];
 
-      if (is_hidden === true) {
-        // Encrypt all sensitive fields
-        await pool.query(
-          `UPDATE users SET 
-            is_hidden=$1,
-            first_name=$2,
-            last_name=$3,
-            mobile_number=$4,
-            email=$5
-          WHERE user_id=$6`,
-          [
-            true,
-            encrypt(user.first_name),
-            encrypt(user.last_name),
-            encrypt(user.mobile_number),
-            encrypt(user.email),
-            user_id,
-          ]
-        );
-      } else {
-        // Decrypt all sensitive fields
-        await pool.query(
-          `UPDATE users SET 
-            is_hidden=$1,
-            first_name=$2,
-            last_name=$3,
-            mobile_number=$4,
-            email=$5
-          WHERE user_id=$6`,
-          [
-            false,
-            decrypt(user.first_name),
-            decrypt(user.last_name),
-            decrypt(user.mobile_number),
-            decrypt(user.email),
-            user_id,
-          ]
-        );
-      }
+    // Safe encrypt/decrypt helpers
+    const safeEncrypt = (val) =>
+      val && !isEncrypted(val) ? encrypt(val) : val;
 
-      return res.json({
-        success: true,
-        message: "Privacy updated",
-        is_hidden,
-      });
+    const safeDecrypt = (val) =>
+      val && isEncrypted(val) ? decrypt(val) : val;
 
-    } catch (err) {
-      console.error("❌ Hide user error:", err);
-      res.status(500).json({ success: false, message: "Hide failed" });
+    let newFirst = user.first_name;
+    let newLast = user.last_name;
+    let newMobile = user.mobile_number;
+    let newEmail = user.email;
+
+    if (is_hidden === true) {
+      newFirst = safeEncrypt(newFirst);
+      newLast = safeEncrypt(newLast);
+      newMobile = safeEncrypt(newMobile);
+      newEmail = safeEncrypt(newEmail);
+    } else {
+      newFirst = safeDecrypt(newFirst);
+      newLast = safeDecrypt(newLast);
+      newMobile = safeDecrypt(newMobile);
+      newEmail = safeDecrypt(newEmail);
     }
-  });
+
+    await pool.query(
+      `UPDATE users SET 
+          is_hidden=$1,
+          first_name=$2,
+          last_name=$3,
+          mobile_number=$4,
+          email=$5
+       WHERE user_id=$6`,
+      [
+        is_hidden,
+        newFirst,
+        newLast,
+        newMobile,
+        newEmail,
+        user_id,
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: "Privacy updated",
+      is_hidden,
+    });
+  } catch (err) {
+    console.error("❌ Privacy update error:", err.message);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update privacy",
+    });
+  }
+});
 
   return router;
 }

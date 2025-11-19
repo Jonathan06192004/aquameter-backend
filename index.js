@@ -20,16 +20,13 @@ import profileRoutes from "./routes/profile.js";
 import waterBillRoutes from "./routes/waterbill.js";
 import deviceRoutes from "./routes/device.js";
 import notificationRoutes from "./routes/notifications.js";
-import privacyRoutes from "./routes/privacy.js";   // <── NEW
 
 const app = express();
 const server = http.createServer(app);
 
 // ========== SOCKET.IO SERVER ==========
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
+  cors: { origin: "*" },
 });
 
 // Store io globally so routes can emit events
@@ -48,7 +45,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Upload dir
+// Upload directory
 const __dirnameResolved = path.resolve();
 const uploadDir = path.join(__dirnameResolved, "uploads");
 
@@ -75,10 +72,10 @@ app.use("/water", waterBillRoutes);
 app.use("/device", deviceRoutes);
 app.use("/notifications", notificationRoutes);
 
-// 🔐 NEW — USER PRIVACY ROUTE (encrypt/decrypt)
-app.use("/api/users", privacyRoutes);
+// ❌ REMOVE THIS!
+// app.use("/api/users", privacyRoutes); // DELETE — not used in Option B
 
-// 404
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
