@@ -1,7 +1,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import pool from "../index.js";
+import pool from "../config/db.js"; // <- correct import
 
 const router = express.Router();
 
@@ -27,7 +27,7 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // 🔎 Check if username already taken
+    // Check username duplicates
     const checkUser = await pool.query(
       "SELECT username FROM users WHERE username = $1",
       [username]
@@ -38,7 +38,7 @@ router.post("/register", async (req, res) => {
         .json({ success: false, message: "Username already exists" });
     }
 
-    // 🔎 (Optional) Check if email already taken
+    // Check email duplicates
     if (email) {
       const checkEmail = await pool.query(
         "SELECT email FROM users WHERE email = $1",
@@ -83,7 +83,7 @@ router.post("/register", async (req, res) => {
    🔑 LOGIN
 ============================================ */
 router.post("/login", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, expo_push_token } = req.body; // allow optional expo token
 
   try {
     if (!username || !password)
@@ -92,27 +92,44 @@ router.post("/login", async (req, res) => {
         message: "Missing username or password",
       });
 
+    // allow login by username OR email
     const result = await pool.query(
-      "SELECT * FROM users WHERE username = $1",
+      "SELECT * FROM users WHERE username = $1 OR email = $1",
       [username]
     );
 
     if (result.rows.length === 0) {
       return res.status(401).json({
         success: false,
-        message: "Invalid username or password",
+        message: "Invalid username/email or password",
       });
     }
 
     const user = result.rows[0];
 
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
       return res.status(401).json({
         success: false,
-        message: "Invalid username or password",
+        message: "Invalid username/email or password",
       });
 
+    // Optionally save expo push token to users table (so notifications can be sent)
+    if (expo_push_token) {
+      try {
+        await pool.query(
+          "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
+          [expo_push_token, user.user_id]
+        );
+        // keep user.expo_push_token in sync for response
+        user.expo_push_token = expo_push_token;
+      } catch (e) {
+        console.warn("⚠️ Could not update expo_push_token:", e.message);
+      }
+    }
+
+    // Generate JWT token
     const token = jwt.sign(
       {
         user_id: user.user_id,
@@ -122,6 +139,7 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    // Return FULL user object
     res.json({
       success: true,
       token,
@@ -129,6 +147,14 @@ router.post("/login", async (req, res) => {
         user_id: user.user_id,
         username: user.username,
         email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        middle_initial: user.middle_initial,
+        mobile_number: user.mobile_number,
+        profile_image: user.profile_image,
+        expo_push_token: user.expo_push_token,
+        is_hidden: user.is_hidden,
+        created_at: user.created_at,
       },
     });
   } catch (err) {
@@ -138,7 +164,7 @@ router.post("/login", async (req, res) => {
 });
 
 /* ============================================
-   🔄 FORGOT PASSWORD (VERIFY EMAIL)
+   🔄 FORGOT PASSWORD
 ============================================ */
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
