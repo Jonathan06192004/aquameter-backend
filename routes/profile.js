@@ -1,6 +1,7 @@
 import express from "express";
 import pool from "../config/db.js";
 import { authenticateToken } from "../middleware/authMiddleware.js";
+import { encrypt, decrypt } from "../utils/encryption.js";
 
 export default function profileRoutes(upload) {
   const router = express.Router();
@@ -62,8 +63,7 @@ export default function profileRoutes(upload) {
   /* Update profile */
   router.put("/:user_id/update", authenticateToken, async (req, res) => {
     const { user_id } = req.params;
-    const { first_name, last_name, middle_initial, mobile_number, username } =
-      req.body;
+    const { first_name, last_name, middle_initial, mobile_number, username } = req.body;
 
     try {
       const existing = await pool.query(
@@ -99,20 +99,74 @@ export default function profileRoutes(upload) {
     }
   });
 
-  /* Hide user info */
+  /* Hide user info — UPDATED WITH ENCRYPTION */
   router.put("/:user_id/hide", authenticateToken, async (req, res) => {
     const { user_id } = req.params;
     const { is_hidden } = req.body;
 
     try {
-      const result = await pool.query(
-        "UPDATE users SET is_hidden=$1 WHERE user_id=$2 RETURNING user_id, is_hidden",
-        [is_hidden, user_id]
+      const found = await pool.query(
+        "SELECT * FROM users WHERE user_id=$1",
+        [user_id]
       );
 
-      res.json({ success: true, user: result.rows[0] });
+      if (found.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const user = found.rows[0];
+
+      if (is_hidden === true) {
+        // Encrypt all sensitive fields
+        await pool.query(
+          `UPDATE users SET 
+            is_hidden=$1,
+            first_name=$2,
+            last_name=$3,
+            mobile_number=$4,
+            email=$5
+          WHERE user_id=$6`,
+          [
+            true,
+            encrypt(user.first_name),
+            encrypt(user.last_name),
+            encrypt(user.mobile_number),
+            encrypt(user.email),
+            user_id,
+          ]
+        );
+      } else {
+        // Decrypt all sensitive fields
+        await pool.query(
+          `UPDATE users SET 
+            is_hidden=$1,
+            first_name=$2,
+            last_name=$3,
+            mobile_number=$4,
+            email=$5
+          WHERE user_id=$6`,
+          [
+            false,
+            decrypt(user.first_name),
+            decrypt(user.last_name),
+            decrypt(user.mobile_number),
+            decrypt(user.email),
+            user_id,
+          ]
+        );
+      }
+
+      return res.json({
+        success: true,
+        message: "Privacy updated",
+        is_hidden,
+      });
+
     } catch (err) {
-      console.error("❌ Hide user error:", err.message);
+      console.error("❌ Hide user error:", err);
       res.status(500).json({ success: false, message: "Hide failed" });
     }
   });
