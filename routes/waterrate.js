@@ -5,31 +5,34 @@ const router = express.Router();
 
 /*
 ===========================================
- UPDATE USER WATER RATE
+ UPDATE USER WATER RATE (Cleaner REST API)
 ===========================================
+ Endpoint:
+    PUT /rate/:user_id
+
  Body:
  {
-   "user_id": 12,
    "rate": 50
  }
 ===========================================
 */
-router.post("/update", async (req, res) => {
+router.put("/:user_id", async (req, res) => {
   try {
-    const { user_id, rate } = req.body;
+    const { user_id } = req.params;
+    const { rate } = req.body;
 
-    if (!user_id || !rate || isNaN(rate)) {
+    if (!rate || isNaN(rate)) {
       return res.status(400).json({
         success: false,
-        error: "Missing or invalid user_id or rate",
+        error: "Missing or invalid rate value",
       });
     }
 
     const query = `
       UPDATE users
       SET water_rate = $1
-      WHERE id = $2
-      RETURNING id, fullname, water_rate;
+      WHERE user_id = $2
+      RETURNING user_id, first_name, last_name, water_rate;
     `;
 
     const result = await pool.query(query, [rate, user_id]);
