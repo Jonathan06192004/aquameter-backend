@@ -21,7 +21,7 @@ import waterBillRoutes from "./routes/waterbill.js";
 import deviceRoutes from "./routes/device.js";
 import notificationRoutes from "./routes/notifications.js";
 
-// ⭐ NEW ROUTE
+// ⭐ NEW ROUTE (user water rate)
 import waterRateRoutes from "./routes/waterrate.js";
 
 const app = express();
@@ -75,7 +75,7 @@ app.use("/water", waterBillRoutes);
 app.use("/device", deviceRoutes);
 app.use("/notifications", notificationRoutes);
 
-// ⭐ NEW WATER RATE ROUTE
+// ⭐ NEW USER WATER RATE ROUTE
 app.use("/rate", waterRateRoutes);
 
 // 404 handler
