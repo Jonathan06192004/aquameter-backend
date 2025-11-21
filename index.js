@@ -21,6 +21,9 @@ import waterBillRoutes from "./routes/waterbill.js";
 import deviceRoutes from "./routes/device.js";
 import notificationRoutes from "./routes/notifications.js";
 
+// ⭐ NEW ROUTE
+import waterRateRoutes from "./routes/waterrate.js";
+
 const app = express();
 const server = http.createServer(app);
 
@@ -72,8 +75,8 @@ app.use("/water", waterBillRoutes);
 app.use("/device", deviceRoutes);
 app.use("/notifications", notificationRoutes);
 
-// ❌ REMOVE THIS!
-// app.use("/api/users", privacyRoutes); // DELETE — not used in Option B
+// ⭐ NEW WATER RATE ROUTE
+app.use("/rate", waterRateRoutes);
 
 // 404 handler
 app.use((req, res) => {
