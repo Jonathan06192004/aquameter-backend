@@ -24,8 +24,9 @@ import notificationRoutes from "./routes/notifications.js";
 // ⭐ NEW ROUTE (user water rate)
 import waterRateRoutes from "./routes/waterrate.js";
 
-// 📈 NEW TREND ROUTE ADDED HERE
-import trendRoutes from "./routes/trend.js";
+// 📈 NEW TREND ROUTE ADDED HERE - CORRECTED IMPORT
+// The routes/trend.js file uses module.exports = router, so we import the whole module.
+import * as trendRoutes from "./routes/trend.js"; 
 
 const app = express();
 const server = http.createServer(app);
@@ -41,7 +42,7 @@ app.set("socketio", io);
 io.on("connection", (socket) => {
   console.log("🟢 WebSocket client connected:", socket.id);
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", () => {
     console.log("🔴 Client disconnected:", socket.id);
   });
 });
