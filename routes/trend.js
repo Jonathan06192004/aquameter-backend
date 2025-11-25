@@ -3,8 +3,8 @@ import express from 'express';
 const router = express.Router();
 import pool from '../config/db.js'; 
 
-// 👇 FIX: Use named import { protect } to match the module's actual export structure.
-import { protect } from '../middleware/authMiddleware.js'; 
+// 👇 FIX: Change 'protect' to the actual exported name: 'authenticateToken'
+import { authenticateToken } from '../middleware/authMiddleware.js'; 
 
 // Function to construct the SQL query based on the range (This part remains the same)
 const getTrendSql = (range) => {
@@ -45,11 +45,13 @@ const getTrendSql = (range) => {
 
 
 // 🎯 IMPLEMENT THE TREND ROUTE
-router.get('/trend/:user_id', protect, async (req, res) => {
+// 👇 FIX: Use 'authenticateToken' as the middleware
+router.get('/trend/:user_id', authenticateToken, async (req, res) => {
     const { user_id } = req.params;
     const { range } = req.query; 
 
     // Simple authorization check 
+    // Note: req.user is set by authenticateToken middleware
     if (req.user.user_id !== Number(user_id)) {
         return res.status(403).json({ success: false, message: 'Unauthorized access to user data.' });
     }
