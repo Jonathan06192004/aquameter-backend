@@ -2,10 +2,9 @@
 import express from 'express'; 
 const router = express.Router();
 import pool from '../config/db.js'; 
-// 👇 FIX: Use a default import, assuming authMiddleware.js exports 'protect' as default
-import protect from '../middleware/authMiddleware.js'; 
-// If the above line fails, try: import * as Auth from '../middleware/authMiddleware.js'; const protect = Auth.protect;
 
+// 👇 FIX: Use named import { protect } to match the module's actual export structure.
+import { protect } from '../middleware/authMiddleware.js'; 
 
 // Function to construct the SQL query based on the range (This part remains the same)
 const getTrendSql = (range) => {
