@@ -1,8 +1,11 @@
 // aquameter-backend/routes/trend.js
-import express from 'express'; // Change: Use import for express
+import express from 'express'; 
 const router = express.Router();
-import pool from '../config/db.js'; // Change: Use import for db connection
-import { protect } from '../middleware/authMiddleware.js'; // Change: Use import for middleware
+import pool from '../config/db.js'; 
+// 👇 FIX: Use a default import, assuming authMiddleware.js exports 'protect' as default
+import protect from '../middleware/authMiddleware.js'; 
+// If the above line fails, try: import * as Auth from '../middleware/authMiddleware.js'; const protect = Auth.protect;
+
 
 // Function to construct the SQL query based on the range (This part remains the same)
 const getTrendSql = (range) => {
@@ -18,7 +21,6 @@ const getTrendSql = (range) => {
     } else if (range === 'monthly') {
         // Weekly trend for the last 4 weeks (approximation)
         interval = '28 days';
-        format = 'W'; 
         group_by = `EXTRACT(WEEK FROM timestamp)`;
     } else if (range === 'yearly') {
         // Monthly trend for the last 12 months
@@ -28,7 +30,6 @@ const getTrendSql = (range) => {
     } else {
         // Default to monthly if range is invalid
         interval = '1 month'; 
-        format = 'DD';
         group_by = `TO_CHAR(timestamp, 'DD')`;
     }
 
@@ -65,4 +66,4 @@ router.get('/trend/:user_id', protect, async (req, res) => {
     }
 });
 
-export default router; // Change: Use export default
+export default router;
