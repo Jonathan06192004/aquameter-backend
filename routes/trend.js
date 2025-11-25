@@ -1,10 +1,10 @@
 // aquameter-backend/routes/trend.js
-const express = require('express');
+import express from 'express'; // Change: Use import for express
 const router = express.Router();
-const pool = require('../config/db'); // ⚠️ Verify this path to your db connection
-const { protect } = require('../middleware/authMiddleware'); // ⚠️ Verify this path to your middleware
+import pool from '../config/db.js'; // Change: Use import for db connection
+import { protect } from '../middleware/authMiddleware.js'; // Change: Use import for middleware
 
-// Function to construct the SQL query based on the range
+// Function to construct the SQL query based on the range (This part remains the same)
 const getTrendSql = (range) => {
     let interval;
     let format;
@@ -13,17 +13,17 @@ const getTrendSql = (range) => {
     if (range === 'weekly') {
         // Daily trend for the last 7 days
         interval = '7 days';
-        format = 'DY'; // Day of the week (e.g., Mon, Tue)
+        format = 'DY'; 
         group_by = `TO_CHAR(timestamp, 'DY')`;
     } else if (range === 'monthly') {
         // Weekly trend for the last 4 weeks (approximation)
         interval = '28 days';
-        format = 'W'; // Week of the month
+        format = 'W'; 
         group_by = `EXTRACT(WEEK FROM timestamp)`;
     } else if (range === 'yearly') {
         // Monthly trend for the last 12 months
         interval = '12 months';
-        format = 'Mon'; // Short month name (e.g., Jan, Feb)
+        format = 'Mon'; 
         group_by = `TO_CHAR(timestamp, 'Mon')`;
     } else {
         // Default to monthly if range is invalid
@@ -45,12 +45,11 @@ const getTrendSql = (range) => {
 
 
 // 🎯 IMPLEMENT THE TREND ROUTE
-// This route matches the frontend fetch: /water/trend/:user_id?range=...
 router.get('/trend/:user_id', protect, async (req, res) => {
     const { user_id } = req.params;
-    const { range } = req.query; // 'weekly', 'monthly', or 'yearly'
+    const { range } = req.query; 
 
-    // Simple authorization check (assuming req.user is set by protect middleware)
+    // Simple authorization check 
     if (req.user.user_id !== Number(user_id)) {
         return res.status(403).json({ success: false, message: 'Unauthorized access to user data.' });
     }
@@ -66,4 +65,4 @@ router.get('/trend/:user_id', protect, async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router; // Change: Use export default
