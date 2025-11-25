@@ -25,8 +25,8 @@ import notificationRoutes from "./routes/notifications.js";
 import waterRateRoutes from "./routes/waterrate.js";
 
 // 📈 NEW TREND ROUTE ADDED HERE - CORRECTED IMPORT
-// The routes/trend.js file uses module.exports = router, so we import the whole module.
-import * as trendRoutes from "./routes/trend.js"; 
+// 👇 FIX: Use a default import, as routes/trend.js uses 'export default router;'
+import trendRoutes from "./routes/trend.js"; 
 
 const app = express();
 const server = http.createServer(app);
@@ -79,6 +79,7 @@ app.use("/water", waterBillRoutes);
 
 // 📈 REGISTERING NEW TREND ROUTE UNDER /water
 // This means: /water/trend/:user_id will be handled by trendRoutes
+// This line now receives the exported router function correctly.
 app.use("/water", trendRoutes); 
 
 app.use("/device", deviceRoutes);
