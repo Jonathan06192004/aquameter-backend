@@ -24,6 +24,9 @@ import notificationRoutes from "./routes/notifications.js";
 // ⭐ NEW ROUTE (user water rate)
 import waterRateRoutes from "./routes/waterrate.js";
 
+// 📈 NEW TREND ROUTE ADDED HERE
+import trendRoutes from "./routes/trend.js";
+
 const app = express();
 const server = http.createServer(app);
 
@@ -38,7 +41,7 @@ app.set("socketio", io);
 io.on("connection", (socket) => {
   console.log("🟢 WebSocket client connected:", socket.id);
 
-  socket.on("disconnect", () => {
+  socket.on("disconnect", () => {
     console.log("🔴 Client disconnected:", socket.id);
   });
 });
@@ -72,6 +75,11 @@ app.use("/admin", adminRoutes);
 app.use("/home", homeRoutes);
 app.use("/profile", profileRoutes(upload));
 app.use("/water", waterBillRoutes);
+
+// 📈 REGISTERING NEW TREND ROUTE UNDER /water
+// This means: /water/trend/:user_id will be handled by trendRoutes
+app.use("/water", trendRoutes); 
+
 app.use("/device", deviceRoutes);
 app.use("/notifications", notificationRoutes);
 
