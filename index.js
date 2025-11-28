@@ -8,7 +8,6 @@ import fs from "fs";
 import http from "http";
 import { Server } from "socket.io";
 
-// 🔌 Config
 import pool from "./config/db.js";
 import upload from "./config/multer.js";
 
@@ -20,12 +19,7 @@ import profileRoutes from "./routes/profile.js";
 import waterBillRoutes from "./routes/waterbill.js";
 import deviceRoutes from "./routes/device.js";
 import notificationRoutes from "./routes/notifications.js";
-
-// ⭐ NEW ROUTE (user water rate)
 import waterRateRoutes from "./routes/waterrate.js";
-
-// 📈 NEW TREND ROUTE ADDED HERE - CORRECTED IMPORT
-// 👇 FIX: Use a default import, as routes/trend.js uses 'export default router;'
 import trendRoutes from "./routes/trend.js"; 
 
 const app = express();
