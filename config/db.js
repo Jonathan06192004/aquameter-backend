@@ -14,7 +14,7 @@ const isRender =
 const pool = new Pool({
   connectionString:
     process.env.DATABASE_URL ||
-    "postgresql://aquameter_user:J2cpNXQznZllOKRSvXv5GGtxQYuzgA3z@dpg-d44qseuuk2gs73fl9e8g-a.singapore-postgres.render.com/aquameter_3fag",
+    "postgresql://aquameter_user:egaiwPMT5bDfW5eyvFhe2j9du7NSfV3j@dpg-d4qfu6chg0os73894hb0-a.singapore-postgres.render.com/aquameter_68ce",
 
   ssl: isRender
     ? { rejectUnauthorized: false }   // Render production
