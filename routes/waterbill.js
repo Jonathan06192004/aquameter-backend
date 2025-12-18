@@ -4,7 +4,11 @@ import { authenticateToken } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Route 1: Get Estimated Water Bill Records
+/**
+ * ------------------------------------------------------
+ * Route 1: Get Estimated Water Bill Records (UNCHANGED)
+ * ------------------------------------------------------
+ */
 router.get("/bill/:user_id", authenticateToken, async (req, res) => {
     const { user_id } = req.params;
 
@@ -18,7 +22,8 @@ router.get("/bill/:user_id", authenticateToken, async (req, res) => {
                 SUM(wb.amount_to_pay)::FLOAT AS amount_to_pay,
                 SUM(wc.consumption)::FLOAT AS total_consumption
             FROM estimated_water_bill wb
-            LEFT JOIN water_readings wc ON wb.reading_id = wc.reading_id
+            LEFT JOIN water_readings wc 
+                ON wb.reading_id = wc.reading_id
             WHERE wb.user_id = $1
             GROUP BY wb.period_start, wb.period_end
             ORDER BY wb.period_end DESC
@@ -32,19 +37,26 @@ router.get("/bill/:user_id", authenticateToken, async (req, res) => {
     }
 });
 
-// Route 2: Monthly Consumption
+/**
+ * ------------------------------------------------------
+ * Route 2: ROW-BASED Consumption (UPDATED)
+ * ------------------------------------------------------
+ * - Each row = one water_readings entry
+ * - Latest reading first
+ * - NO monthly grouping
+ */
 router.get("/readings/:user_id", authenticateToken, async (req, res) => {
     const { user_id } = req.params;
 
     try {
         const q = `
             SELECT
-                DATE_TRUNC('month', timestamp) AS billing_month,
-                SUM(COALESCE(consumption, 0))::FLOAT AS monthly_consumption
+                reading_id,
+                consumption,
+                timestamp
             FROM water_readings
             WHERE user_id = $1
-            GROUP BY billing_month
-            ORDER BY billing_month DESC
+            ORDER BY timestamp DESC, reading_id DESC
         `;
 
         const result = await pool.query(q, [user_id]);
@@ -55,7 +67,11 @@ router.get("/readings/:user_id", authenticateToken, async (req, res) => {
     }
 });
 
-// ✅ Route 3: Latest Meter Reading (NEW)
+/**
+ * ------------------------------------------------------
+ * Route 3: Latest Meter Reading (UNCHANGED)
+ * ------------------------------------------------------
+ */
 router.get("/latest-reading/:user_id", authenticateToken, async (req, res) => {
     const { user_id } = req.params;
 
